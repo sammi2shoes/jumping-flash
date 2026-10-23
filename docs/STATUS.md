@@ -32,6 +32,10 @@ v0.15 preserves Y as slow and adds an X-triggered slow-retract/faster-extend tri
 
 The user confirmed v0.15 testing was leg movement off the ground, despite feeling weak. Sampled burst filtered-Iq magnitude reached0.2533A against the3A setting; max sampled error8.904deg. No current/force/takeoff conclusion under body weight is established. A known-load foot-ground push is the next physical diagnostic; no speed/current increase was made from this result. See the v0.15 summary and comparison plot.
 
+## Competition direction
+
+User priority: minimum latency takes precedence over logging, optional reads and blocking verification. Competition launch/cutoff will need a predictable control path, cached feedback and pre-arm configuration checks; logging cannot refresh the motor watchdog independently of control health. Immediate recovery after the push is desired, with no extended dwell and no outward drive into the physical stops (passive coast/impact is accepted). Current v0.15 does not implement this final behavior. See CONTROL-ARCHITECTURE.md.
+
 ## Available and planned hardware
 
 One RobStride 05 is currently available (bench ID1); the second leg motor is planned. Spinner ESC: brushless AM32, 100 A; PWM versus DShot undecided. Left/right motor assignment is not established.
