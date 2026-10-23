@@ -13,12 +13,17 @@ std::map<uint16_t,uint32_t> regs;
 struct Sent{uint32_t time;unsigned kind,index,bits;};
 std::vector<Sent> sent;
 bool link=true,rejectLimit=false;
+uint32_t mailboxUntil=0;
+bool mailboxStuck=false;
+int twai_get_status_info(twai_status_info_t* s){*s={};s->msgs_to_tx=mailboxStuck || fakeTime<mailboxUntil;return 0;}
 int simulatedMode=0,enables=0;
 float simulatedPosition=2.9f;
 #include "../../firmware/MotorRecovery/MotorRecovery.ino"
 void feedback(){twai_message_t r={};r.identifier=0x0200017e|(uint32_t(simulatedMode)<<22);r.extd=1;r.data_length_code=8;rx.push_back(r);}
 int twai_receive(twai_message_t* f,int){if(rx.empty())return -1;*f=rx.front();rx.pop_front();return 0;}
 int twai_transmit(const twai_message_t* f,int){
+ if(mailboxStuck || fakeTime<mailboxUntil)return -1;
+ mailboxUntil=fakeTime+2;
  unsigned type=f->identifier>>24,index=f->data[0]|(unsigned(f->data[1])<<8),bits=0;memcpy(&bits,f->data+4,4);
  assert(type==3||type==4||type==17||type==18||type==24);
  assert(f->extd&&f->ss&&(f->identifier&0xffff)==0x7e01);
@@ -40,6 +45,7 @@ void initial(Controller& c){
 }
 int main(){
  Controller c;initial(c);
+ mailboxStuck=true;uint32_t started=fakeTime;assert(!sendPacket(17));assert(fakeTime-started==20);mailboxStuck=false;
  c.x=512;tick(2000);assert(phase==ACTIVE&&simulatedPosition<=origin+TRAVEL+.00001f);
  link=false;tick(300);assert(phase==OFFLINE);size_t quietStart=sent.size();uint32_t before=fakeTime;tick(500);assert(sent.size()==quietStart&&fakeTime-before>=500);
  link=true;simulatedMode=0;simulatedPosition=4.2f;c.x=0;tick(2000);assert(phase==WAIT_RELEASE&&enables==1&&fabsf(target-4.2f)<.00001f);

@@ -78,7 +78,31 @@ bool sendPacket(uint8_t type, const uint8_t* bytes = nullptr) {
   f.identifier = (uint32_t(type) << 24) | (uint32_t(HOST) << 8) | MOTOR;
   f.extd = 1; f.ss = 1; f.data_length_code = 8;
   if (bytes) memcpy(f.data, bytes, 8);
-  return twai_transmit(&f, pdMS_TO_TICKS(10)) == ESP_OK;
+  // With no TX queue, the driver rejects another frame while its mailbox is
+  // occupied. Wait for the preceding frame, bounded well below the watchdog.
+  const uint32_t began = millis();
+  twai_status_info_t status = {};
+  for (;;) {
+    const esp_err_t result = twai_get_status_info(&status);
+    if (result != ESP_OK || status.state != TWAI_STATE_RUNNING) {
+      Serial.printf("TX type=%u blocked: driver=%s state=%u\n", type, esp_err_to_name(result), unsigned(status.state));
+      return false;
+    }
+    if (!status.msgs_to_tx) break;
+    if (uint32_t(millis() - began) >= 20) {
+      Serial.printf("TX type=%u blocked: mailbox busy; tx_err=%lu rx_err=%lu\n", type,
+        (unsigned long)status.tx_error_counter, (unsigned long)status.rx_error_counter);
+      return false;
+    }
+    service();
+    if (type != 4 && (cancelled || motorFault || stopRequested)) return false;
+    delay(1);
+  }
+  service();
+  if (type != 4 && (cancelled || motorFault || stopRequested)) return false;
+  const esp_err_t result = twai_transmit(&f, pdMS_TO_TICKS(10));
+  if (result != ESP_OK) Serial.printf("TX type=%u failed: %s\n", type, esp_err_to_name(result));
+  return result == ESP_OK;
 }
 
 bool readValue(uint16_t index, uint32_t& bits) {
@@ -99,8 +123,13 @@ bool writeChecked(uint16_t index, uint32_t bits, bool byteValue = false) {
   uint8_t d[8] = {uint8_t(index), uint8_t(index >> 8), 0, 0, 0, 0, 0, 0};
   memcpy(d + 4, &bits, 4);
   uint32_t actual;
-  return sendPacket(18, d) && readValue(index, actual) &&
-    (byteValue ? (actual & 255) == (bits & 255) : actual == bits);
+  if (!sendPacket(18, d) || !readValue(index, actual)) {
+    Serial.printf("WRITE/VERIFY failed index=0x%04X\n", index); return false;
+  }
+  const bool matches = byteValue ? (actual & 255) == (bits & 255) : actual == bits;
+  if (!matches) Serial.printf("VERIFY mismatch index=0x%04X wanted=%08lX got=%08lX\n",
+    index, (unsigned long)bits, (unsigned long)actual);
+  return matches;
 }
 bool readPosition() {
   uint32_t bits;
@@ -180,6 +209,7 @@ void setup() {
   auto cfg = M5.config(); M5.begin(cfg); Serial.begin(115200);
   M5.Display.setRotation(1); M5.Display.setTextSize(2);
   BP32.setup(&connected, &disconnected); BP32.enableVirtualDevice(false);
+  BP32.enableNewBluetoothConnections(true);
   twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(GPIO_NUM_32, GPIO_NUM_33, TWAI_MODE_NORMAL);
   g.rx_queue_len = 64; g.tx_queue_len = 0; // No software queue of stale targets.
   twai_timing_config_t t = TWAI_TIMING_CONFIG_1MBITS();
@@ -187,7 +217,7 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
-  Serial.printf("RS05 recovery bench v0.2 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  Serial.printf("RS05 recovery bench v0.3 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
   Serial.println("RB/R1=hold enable; left X=slow motion. Button A on Stick or serial x=stop. No spinner output.");
 }
 

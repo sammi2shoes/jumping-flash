@@ -9,7 +9,7 @@ struct twai_message_t {uint32_t identifier=0;unsigned extd=0,rtr=0,ss=0;uint8_t 
 struct twai_general_config_t {int rx_queue_len=0,tx_queue_len=0;};
 struct twai_timing_config_t {};
 struct twai_filter_config_t {};
-struct twai_status_info_t {int state=1; uint32_t tx_error_counter=0,rx_error_counter=0,tx_failed_count=0,rx_missed_count=0;};
+struct twai_status_info_t {int state=1; uint32_t msgs_to_tx=0,tx_error_counter=0,rx_error_counter=0,tx_failed_count=0,rx_missed_count=0;};
 #define TWAI_GENERAL_CONFIG_DEFAULT(a,b,c) {}
 #define TWAI_TIMING_CONFIG_1MBITS() {}
 #define TWAI_FILTER_CONFIG_ACCEPT_ALL() {}
@@ -17,4 +17,4 @@ int twai_transmit(const twai_message_t*,int);
 int twai_receive(twai_message_t*,int);
 inline int twai_driver_install(void*,void*,void*){return 0;}
 inline int twai_start(){return 0;}
-inline int twai_get_status_info(twai_status_info_t*){return 0;}
+int twai_get_status_info(twai_status_info_t*);
