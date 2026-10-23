@@ -1,6 +1,6 @@
 # Single-leg prototype: fixed reference and held enable
 
-Current MotorRecovery v0.11 targets StickC Plus2, MiniCAN GPIO32TX/GPIO33RX, RS05 CAN2.0 firmware0.5.0.14, motor1/host126,1Mbps. Build environment motor-recovery. It supersedes the per-arm relative reference in v0.9 and earlier. The current prototype has no locking mechanism. One leg is attached; the spring can extend the mechanism when torque is disabled. No jump, spinner, second leg or automatic homing is implemented.
+Current MotorRecovery v0.12 targets StickC Plus2, MiniCAN GPIO32TX/GPIO33RX, RS05 CAN2.0 firmware0.5.0.14, motor1/host126,1Mbps. Build environment motor-recovery. It supersedes the per-arm relative reference in v0.9 and earlier. The current prototype has no locking mechanism. One leg is attached; the spring can extend the mechanism when torque is disabled. No jump, spinner, second leg or automatic homing is implemented.
 
 ## Startup and controls
 
@@ -8,6 +8,8 @@ Current MotorRecovery v0.11 targets StickC Plus2, MiniCAN GPIO32TX/GPIO33RX, RS0
 2. With the leg mechanically supported against its ankle spring, manually position it at the known fully retracted pose. Center the controller stick and release R1. Release the Stick's side buttonB, then hold it for2seconds. Two encoder reads100ms apart must be stationary within0.002rad. This checks stillness, not whether the operator selected the correct pose. No driving into hard stops occurs.
 3. Wait for ZERO CAPTURED and READY. Center the stick, then press/hold R1 to enable. Left-stick X right extends toward80deg; left retracts toward0deg. Extension decreases encoder position.
 4. Keep R1 held: neutral ramps target velocity to zero and actively holds the resulting position. Release R1, press front buttonA, send serialx, or lose/stale Bluetooth input to request torque disable. R1 remains a held enable; the proposed toggle was cancelled. Disable can release stored spring energy; active hold is not a mechanical brake.
+
+Optional sequence: after normal zero/arming, keep R1 held and left stick centered; release then press the **controller Y face button** for one retract/pause/extend cycle. This is not the Stick side buttonB used for zero. See v0.12 below.
 
 Current remains1A, speed1rad/s, host target-rate acceleration5rad/s^2, travel0..80deg and motor watchdog20000counts (nominal1s). Holding torque at1A has not been validated against this spring. The fixed0/80deg limits apply to every arm within the referenced session. After disarm the target is preloaded from the new measured position, not replayed, while the original zero remains unchanged. Center/release then fresh R1 press is still required after a stop/reconnection. There is no output for the spinner ESC.
 
@@ -21,7 +23,7 @@ This is not a physical home sensor or a reset-proof reference. Zero is in RAM, n
 
 ## Validation
 
-v0.11 host simulation covers required manual reference, short/unsafe button holds rejected, held R1 and neutral position hold, both80deg endpoints, unchanged zero through mid-stroke disarm/rearm and Bluetooth reconnection, recapture blocked, CAN/settings uncertainty blocking enable without changing zero, readback tolerances and mailbox handling. Hardware validation of this version is pending. Prior v0.6 logs establish observed motion/R1-release disable; the user reported later v0.9 motion, controller-loss stop/reconnect and correct direction with the leg attached. Those reports do not validate this new fixed-reference implementation or holding torque under spring load. Historical version notes below describe earlier behavior and are not current operating instructions.
+v0.12 host simulation covers required manual reference, short/unsafe button holds rejected, held R1 and neutral position hold, both80deg endpoints, unchanged zero through mid-stroke disarm/rearm and Bluetooth reconnection, recapture blocked, CAN/settings uncertainty blocking enable without changing zero, readback tolerances and mailbox handling. Hardware validation of this version is pending. Prior v0.6 logs establish observed motion/R1-release disable; the user reported later v0.9 motion, controller-loss stop/reconnect and correct direction with the leg attached. Those reports do not validate this new fixed-reference implementation or holding torque under spring load. Historical version notes below describe earlier behavior and are not current operating instructions.
 
 ## v0.2: Bluetooth connection classification and diagnostics
 
@@ -82,3 +84,15 @@ The user reported REF INVALID after switching off the controller. A reproducible
 Operations now distinguish input cancellation from actual transport/readback/state failure. Position reads, target verification, settings checks and arming carry that reason to the disarm handler before STOP transactions overwrite it. Only input cancellation with no fault/reset evidence and a confirmed STOP preserves reference trust. Timeouts, rejected reads, mismatching/nonfinite values, TX errors and unconfirmed STOP remain invalidating. Interrupted CAN operations print Input cancelled read or input cancelled transaction instead of claiming feedback loss. Reference capture, fixed limits and held R1 behavior are unchanged.
 
 Regression simulation reproduces controller power-off during position0x7019, target0x7016 and current-limit0x7018 reads, plus enable-state confirmation. Each retains the identical origin, stops, refuses automatic re-arm, and permits a fresh release/press after return. A cancelled operation followed by unconfirmed STOP still invalidates. Full host checks and ESP32 compilation pass; hardware confirmation is pending.
+
+## v0.12: one-motor sequence rehearsal
+
+The user confirmed v0.11 fixed the reported controller-off reference problem and that1A holds the current lighter-spring test rig. No new raw logs or heavier-spring validation were supplied. The R1 toggle proposal remains cancelled.
+
+This version adds one deliberately triggered retract/pause/extend cycle at unchanged1A,1rad/s and5rad/s^2 target-rate acceleration. While ACTIVE, hold R1, center the left stick and freshly press controllerY. If Y was held through startup, arming or reconnection, it must be released and pressed again. Off-center requests are discarded rather than queued; presses while a cycle is running do not queue another cycle.
+
+Stages: retract toward fixed0deg with a braking rate profile; require commanded endpoint and measured arrival within0.5deg; hold within that measured band continuously for300ms; extend toward fixed80deg with braking rate profile; require endpoint and measured arrival before COMPLETE. Completed cycles actively hold80deg while R1 remains held. Holding Y never repeats. A fresh release/press starts another cycle. The first test may be started partway extended to observe retraction.
+
+Joystick deflection cancels the cycle and resumes manual control from measured position. R1 release, StickA/serialx, controller loss/staleness and faults use existing stop paths and discard every cycle stage/request; re-arming never resumes the old cycle. A stage that cannot reach/hold its endpoint within6seconds requests disable; it does not proceed to extension on elapsed time alone. Fixed reference and all existing transport/readback checks remain in force. The display/serial log identify MANUAL, RETRACT, PAUSE, EXTEND and DONE/HOLD.
+
+This is a single-motor sequence rehearsal, not a full-power jump or coordinated two-leg launch. Spinner output remains absent. Host simulations cover one-shot/held-button behavior, both endpoints, manual override, off-center trigger rejection, R1/controller cancellation without resume and a stalled-motion timeout. Existing fixed-zero, link-loss cancellation and CAN-failure tests pass; ESP32 compilation passes. Hardware verification of v0.12 is pending.

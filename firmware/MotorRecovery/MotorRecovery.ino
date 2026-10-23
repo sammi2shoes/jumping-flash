@@ -41,6 +41,19 @@ bool withinReference() {
 // Only a confirmed STOP after an input abort may preserve reference trust.
 enum OperationFailure { OP_OK, OP_INPUT_CANCEL, OP_CAN_FAILURE };
 OperationFailure operationFailure = OP_OK;
+enum CycleStage { MANUAL, RETRACT, SETTLE, EXTEND, COMPLETE };
+CycleStage cycleStage = MANUAL;
+bool cycleRequested = false, cycleButtonDown = true;
+uint32_t cycleStageAt = 0, cycleSettledAt = 0;
+constexpr float ARRIVAL = 0.5f * PI / 180.0f;
+constexpr uint32_t CYCLE_TIMEOUT_MS = 6000, CYCLE_PAUSE_MS = 300;
+void clearCycle() {
+  cycleStage = MANUAL; cycleRequested = false; cycleStageAt = cycleSettledAt = 0;
+}
+const char* cycleName() {
+  const char* names[] = {"MANUAL", "RETRACT", "PAUSE", "EXTEND", "DONE/HOLD"};
+  return names[cycleStage];
+}
 bool held();
 bool inputCancelled() {
   return referenceValid && !motorFault &&
@@ -61,12 +74,12 @@ void connected(ControllerPtr candidate) {
   // Bluepad32 can connect before the first report supplies the controller class.
   // Retain the handle now; require actual gamepad reports before accepting input.
   if (!pad) {
-    pad = candidate; padReport = 0; padReports = 0;
+    pad = candidate; padReport = 0; padReports = 0; cycleButtonDown = true;
     Serial.println("BT connected: waiting for gamepad reports. Release RB/R1.");
   }
 }
 void disconnected(ControllerPtr candidate) {
-  if (candidate == pad) { pad = nullptr; padReport = 0; padReports = 0; Serial.println("Bluetooth disconnected."); }
+  if (candidate == pad) { pad = nullptr; padReport = 0; padReports = 0; cycleButtonDown = true; Serial.println("Bluetooth disconnected."); }
 }
 
 void service() {
@@ -74,6 +87,13 @@ void service() {
   const bool updated = BP32.update();
   if (updated && pad && pad->isConnected() && pad->isGamepad() && pad->hasData()) {
     padReport = millis(); ++padReports;
+    const bool button = pad->y();
+    if (button && !cycleButtonDown && phase == ACTIVE && held() &&
+        (cycleStage == MANUAL || cycleStage == COMPLETE)) {
+      if (centered()) cycleRequested = true;
+      else Serial.println("Cycle ignored: center left stick, release Y, then press again.");
+    }
+    cycleButtonDown = button;
   }
   if (M5.BtnA.wasPressed()) stopRequested = true;
   while (Serial.available()) { char c = Serial.read(); if (c == 'x' || c == 'X') stopRequested = true; }
@@ -206,7 +226,7 @@ bool stopMotor() {
 }
 
 void loseControl(const char* reason, bool uncertain = false) {
-  phase = OFFLINE; pending = false; releasedAt = 0; targetRate = 0; referenceHoldAt = 0;
+  phase = OFFLINE; pending = false; releasedAt = 0; targetRate = 0; referenceHoldAt = 0; clearCycle();
   Serial.printf("DISARMED: %s; old target discarded.\n", reason);
   const bool stopped = stopMotor();
   Serial.println(stopped ? "Disabled confirmed." : "STOP UNCONFIRMED: motor watchdog is fallback; use power cutoff if needed.");
@@ -301,7 +321,7 @@ bool armMotor() {
   if (!readValue(0x7028, timeout) || timeout != WATCHDOG || !readPosition()) return false;
   target = position;
   if (!withinReference() || !writeChecked(0x7016, bitsOf(target)) || !held() || cancelled || motorFault) return false;
-  targetRate = 0; phase = ACTIVE; pollAt = millis();
+  clearCycle(); targetRate = 0; phase = ACTIVE; pollAt = millis();
   Serial.println("ARMED HOLD: keep R1 held; neutral holds; release R1 to DISABLE. Fixed travel 0..80 deg at 1.0 rad/s, 1 A.");
   return true;
 }
@@ -318,10 +338,11 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
-  Serial.printf("RS05 position hold v0.11 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  Serial.printf("RS05 position hold v0.12 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
   if (driverReady) Serial.println(stopMotor() ? "Startup disabled confirmed." : "Startup STOP unconfirmed; use motor power cutoff if needed.");
   Serial.println("Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.");
   Serial.println("Extension direction: decreasing encoder position; right stick extends, left retracts.");
+  Serial.println("Controller Y: one retract/pause/extend cycle while R1 held and stick centered; stick movement cancels cycle.");
   Serial.println("RB/R1=hold enable; left X=motion; neutral=hold position. Button A on Stick or serial x=stop. No spinner output.");
 }
 
@@ -376,24 +397,61 @@ void loop() {
       const float measuredTravel = EXTEND_SIGN * (position - origin);
       if (measuredTravel < -.035f || measuredTravel > TRAVEL + .035f) { loseControl("measured travel exceeded fixed reference limits", true); return; }
       const int axis = pad && inputFresh() ? pad->axisX() : 0;
-      const float rate = abs(axis) <= 60 ? 0.0f : float(axis) / 512.0f;
-      const float desiredRate = rate * SPEED;
+      if (cycleRequested) {
+        cycleRequested = false;
+        if (centered() && held() && (cycleStage == MANUAL || cycleStage == COMPLETE)) {
+          cycleStage = RETRACT; cycleStageAt = millis(); cycleSettledAt = 0;
+          target = position; targetRate = 0;
+          Serial.println("CYCLE RETRACT: one cycle at 1 A / 1 rad/s. Keep R1 held; stick overrides.");
+        }
+      }
+      if (cycleStage != MANUAL && abs(axis) > 60) {
+        clearCycle(); target = position; targetRate = 0;
+        Serial.println("Cycle cancelled by joystick; manual control restored.");
+      }
+      if (cycleStage != MANUAL && cycleStage != COMPLETE &&
+          uint32_t(millis() - cycleStageAt) >= CYCLE_TIMEOUT_MS) {
+        loseControl("cycle failed to reach/hold endpoint within 6 seconds"); return;
+      }
+      float travel = fminf(TRAVEL, fmaxf(0.0f, EXTEND_SIGN * (target - origin)));
+      float desiredRate = (abs(axis) <= 60 ? 0.0f : float(axis) / 512.0f) * SPEED;
+      if (cycleStage == RETRACT) desiredRate = -fminf(SPEED, sqrtf(2 * ACCELERATION * travel));
+      if (cycleStage == EXTEND) desiredRate = fminf(SPEED, sqrtf(2 * ACCELERATION * (TRAVEL - travel)));
+      if (cycleStage == SETTLE || cycleStage == COMPLETE) {
+        travel = cycleStage == SETTLE ? 0.0f : TRAVEL; desiredRate = 0; targetRate = 0;
+      }
       const float change = ACCELERATION * dt;
       if (targetRate < desiredRate) targetRate = fminf(targetRate + change, desiredRate);
       else targetRate = fmaxf(targetRate - change, desiredRate);
-      float travel = EXTEND_SIGN * (target - origin) + targetRate * dt;
+      travel += targetRate * dt;
       if (travel >= TRAVEL) { travel = TRAVEL; targetRate = 0; }
       if (travel <= 0) { travel = 0; targetRate = 0; }
       target = origin + EXTEND_SIGN * travel;
-      if (!writeChecked(0x7016, bitsOf(target))) loseFailedOperation("CAN target acknowledgement lost");
+      if (!writeChecked(0x7016, bitsOf(target))) { loseFailedOperation("CAN target acknowledgement lost"); return; }
+      if (cycleStage == RETRACT && travel <= .0002f && fabsf(measuredTravel) <= ARRIVAL) {
+        cycleStage = SETTLE; cycleStageAt = millis(); cycleSettledAt = 0; targetRate = 0;
+        Serial.println("CYCLE PAUSE: holding retracted position for 300 ms.");
+      } else if (cycleStage == SETTLE) {
+        if (fabsf(measuredTravel) > ARRIVAL) cycleSettledAt = 0;
+        else {
+          if (!cycleSettledAt) cycleSettledAt = millis();
+          if (uint32_t(millis() - cycleSettledAt) >= CYCLE_PAUSE_MS) {
+            cycleStage = EXTEND; cycleStageAt = millis();
+            Serial.println("CYCLE EXTEND: moving toward fixed 80-degree endpoint.");
+          }
+        }
+      } else if (cycleStage == EXTEND && TRAVEL - travel <= .0002f && fabsf(measuredTravel - TRAVEL) <= ARRIVAL) {
+        cycleStage = COMPLETE; targetRate = 0;
+        Serial.println("CYCLE COMPLETE: holding extended. Release/press controller Y for a new cycle; R1 release disables.");
+      }
     }
   }
   if (uint32_t(millis() - lastPadLog) >= 1000) {
     lastPadLog = millis();
     const bool linked = pad && pad->isConnected();
     const bool gamepad = linked && pad->isGamepad();
-    if (phase == ACTIVE) Serial.printf("MOTION measured_deg=%.2f target_deg=%.2f rate_deg_s=%.2f limit=0..80\n",
-      EXTEND_SIGN*(position-origin)*180.0f/PI, EXTEND_SIGN*(target-origin)*180.0f/PI, targetRate*180.0f/PI);
+    if (phase == ACTIVE) Serial.printf("MOTION measured_deg=%.2f target_deg=%.2f rate_deg_s=%.2f limit=0..80 cycle=%s\n",
+      EXTEND_SIGN*(position-origin)*180.0f/PI, EXTEND_SIGN*(target-origin)*180.0f/PI, targetRate*180.0f/PI, cycleName());
     Serial.printf("PAD link=%u gamepad=%u fresh=%u reports=%lu age_ms=%ld leftX=%d RB_R1=%u phase=%u\n",
       unsigned(linked), unsigned(gamepad), unsigned(inputFresh()), (unsigned long)padReports,
       padReport ? long(uint32_t(millis() - padReport)) : -1L,
@@ -404,7 +462,7 @@ void loop() {
     const char* names[] = {"CAN OFFLINE", "CONFIGURING", "RELEASE RB/R1", "READY", "ARMING", "ACTIVE HOLD", "SET ZERO: B 2s"};
     M5.Display.setCursor(0, 0);
     const char* padState = !pad || !pad->isConnected() ? "NO LINK" : !pad->isGamepad() ? "WAIT TYPE" : !padReport ? "NO REPORTS" : inputFresh() ? "FRESH" : "STALE";
-    M5.Display.printf("%-16s\nPAD: %-10s\n1A / 0..80 deg\nR1: hold enable\nLeft X: move\nA / x: STOP\n", phase == NEED_REFERENCE && referenceCaptured ? "REF INVALID" : phase == OFFLINE && !inputFresh() ? "CONNECT PAD" : names[phase], padState);
+    M5.Display.printf("%-16s\nPAD: %-10s\n1A / 0..80 deg\nR1: hold enable\nY: cycle / %-9s\nA / x: STOP\n", phase == NEED_REFERENCE && referenceCaptured ? "REF INVALID" : phase == OFFLINE && !inputFresh() ? "CONNECT PAD" : names[phase], padState, cycleName());
   }
   delay(1);
 }

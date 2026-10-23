@@ -12,7 +12,7 @@ std::deque<twai_message_t> rx;
 std::map<uint16_t,uint32_t> regs;
 struct Sent{uint32_t time;unsigned kind,index,bits;};
 std::vector<Sent> sent;
-bool link=true,rejectLimit=false,disconnectOnEnable=false,failStop=false;
+bool link=true,rejectLimit=false,disconnectOnEnable=false,failStop=false,followTarget=true;
 uint16_t disconnectDuringRead=0;
 uint32_t rxReadyAt=0;
 uint32_t mailboxUntil=0;
@@ -35,7 +35,7 @@ int twai_transmit(const twai_message_t* f,int){
  if(type==4){simulatedMode=0;feedback();}
  if(type==24){assert(f->data[6]==0);feedback();}
  if(type==3){assert(held()&&centered()&&phase==ARMING&&regs[0x7028]==20000&&regs[0x7018]==bitsOf(1.f)&&regs[0x7005]==5);assert(fabsf(floatOf(regs[0x7016])-simulatedPosition)<.0001f);simulatedMode=2;++enables;feedback();}
- if(type==18){assert(index==0x7028||index==0x7018||index==0x7005||index==0x7017||index==0x7016);if(!(rejectLimit&&index==0x7018))regs[index]=bits;if(index==0x7016&&simulatedMode==2)simulatedPosition=floatOf(bits);feedback();}
+ if(type==18){assert(index==0x7028||index==0x7018||index==0x7005||index==0x7017||index==0x7016);if(!(rejectLimit&&index==0x7018))regs[index]=bits;if(index==0x7016&&simulatedMode==2&&followTarget)simulatedPosition=floatOf(bits);feedback();}
  if(type==17&&disconnectDuringRead==index){
   disconnectDuringRead=0;rxReadyAt=fakeTime+10;BP32.disconnectTarget=pad;BP32.disconnectAt=fakeTime+1;
  }
@@ -44,13 +44,13 @@ int twai_transmit(const twai_message_t* f,int){
 }
 void tick(unsigned duration){uint32_t end=fakeTime+duration;while(fakeTime<end)loop();}
 void resetBench() {
- fakeTime=100;interruptAt=0;rx.clear();regs.clear();sent.clear();link=true;rejectLimit=false;disconnectOnEnable=failStop=false;
+ fakeTime=100;interruptAt=0;rx.clear();regs.clear();sent.clear();link=true;rejectLimit=false;disconnectOnEnable=failStop=false;followTarget=true;
  disconnectDuringRead=0;rxReadyAt=0;mailboxUntil=0;mailboxStuck=false;simulatedMode=0;enables=0;simulatedPosition=2.9f;targetReadOffset=.000099f;
  M5={};BP32={};Serial.output.clear();phase=OFFLINE;pad=nullptr;driverReady=false;
  cancelled=stopRequested=motorFault=false;padReport=retryAt=pollAt=releasedAt=displayAt=0;
  padReports=lastPadLog=modeCount=0;motorMode=255;motorFlags=0;pendingIndex=0;
  pending=readDone=readOK=false;readBits=0;position=target=origin=targetRate=0;
- operationFailure=OP_OK;referenceCaptured=referenceValid=referenceButtonReleased=false;referenceHoldAt=signatureAt=0;
+ clearCycle();cycleButtonDown=true;operationFailure=OP_OK;referenceCaptured=referenceValid=referenceButtonReleased=false;referenceHoldAt=signatureAt=0;
 }
 void initial(Controller& c) {
  resetBench();setup();c={};c.gamepad=false;connected(&c);
@@ -123,5 +123,24 @@ int main() {
  assert(!c.online&&simulatedMode==0&&referenceValid&&origin==zero4&&enables==2);
  initial(c);const float zero5=origin;disconnectDuringRead=0x7019;failStop=true;tick(800);
  assert(!c.online&&!referenceValid&&origin==zero5); // Cancellation cannot excuse unconfirmed STOP.
- puts("PASS: manual stationary reference required; held R1 retained; neutral active hold; fixed zero across mid-stroke rearm, Bluetooth loss/reconnect, button stop; no recapture; CAN/reset/settings uncertainty blocks enable without changing zero; fixed direction and 0..80 limits; readback/transport guards. Simulated hardware only.");
+ // New cycle trigger is edge gated, runs once, then holds at the fixed endpoint.
+ initial(c);const float cycleZero=origin;c.cycleButton=true;tick(4500);
+ assert(cycleStage==COMPLETE&&phase==ACTIVE&&fabsf(target-origin+TRAVEL)<.00001f&&origin==cycleZero);
+ tick(2000);assert(cycleStage==COMPLETE); // Holding Y never repeats.
+ c.x=-512;tick(100);assert(cycleStage==MANUAL&&phase==ACTIVE);c.x=0;tick(300);
+ c.cycleButton=false;tick(100);c.cycleButton=true;tick(100);assert(cycleStage==RETRACT);
+ c.hold=false;tick(250);assert(cycleStage==MANUAL&&simulatedMode==0&&referenceValid);
+ c.hold=true;tick(150);assert(cycleStage==MANUAL&&phase==ACTIVE); // Held Y cannot resume after stop.
+ c.cycleButton=false;tick(100);c.cycleButton=true;tick(100);assert(cycleStage==RETRACT);
+ c.online=false;tick(100);assert(simulatedMode==0&&cycleStage==MANUAL&&referenceValid);
+ initial(c);c.x=200;c.cycleButton=true;tick(100);c.x=0;tick(500);
+ assert(cycleStage==MANUAL); // Off-center Y press is discarded, never queued.
+ c.cycleButton=false;tick(100);c.cycleButton=true;tick(100);
+ for(int n=0;n<50&&cycleStage!=SETTLE;++n)tick(20);
+ assert(cycleStage==SETTLE);
+ BP32.reports=false;tick(300);assert(cycleStage==MANUAL&&simulatedMode==0&&referenceValid);
+ BP32.reports=true;tick(300);assert(phase==WAIT_RELEASE&&cycleStage==MANUAL);
+ initial(c);followTarget=false;c.cycleButton=true;tick(7500);
+ assert(simulatedMode==0&&cycleStage==MANUAL&&referenceValid&&Serial.output.find("cycle failed to reach/hold endpoint")!=std::string::npos);
+ puts("PASS: manual stationary reference required; held R1 retained; neutral active hold; fixed zero across mid-stroke rearm, Bluetooth loss/reconnect, button stop; no recapture; CAN/reset/settings uncertainty blocks enable without changing zero; fixed direction and 0..80 limits; readback/transport guards; one-shot cycle, neutral trigger, manual override, cancellation/no resume, endpoint timeout. Simulated hardware only.");
 }
