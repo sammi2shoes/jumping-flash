@@ -32,7 +32,10 @@ int twai_transmit(const twai_message_t* f,int){
 }
 void tick(unsigned duration){uint32_t end=fakeTime+duration;while(fakeTime<end)loop();}
 void initial(Controller& c){
- setup();c={};connected(&c);tick(1800);assert(phase==READY&&enables==0&&simulatedMode==0);
+ setup();c={};c.gamepad=false;connected(&c);
+ assert(pad==&c);tick(1800);assert(phase==WAIT_RELEASE&&enables==0&&!inputFresh());
+ c.gamepad=true;BP32.reports=false;tick(300);assert(!inputFresh()&&enables==0);
+ BP32.reports=true;tick(250);assert(phase==READY&&enables==0&&simulatedMode==0&&padReports>0);
  c.hold=true;tick(100);assert(phase==ACTIVE&&enables==1);
 }
 int main(){
@@ -47,5 +50,5 @@ int main(){
  c.hold=false;tick(200);c.x=200;c.hold=true;tick(100);assert(phase==WAIT_RELEASE&&enables==3);c.x=0;tick(200);assert(enables==3);c.hold=false;tick(200);c.hold=true;tick(100);assert(enables==4);
  M5.BtnA.clicked=true;tick(20);assert(phase==OFFLINE&&simulatedMode==0);
  c.hold=false;rejectLimit=true;regs[0x7018]=bitsOf(2.f);tick(2000);assert(phase==OFFLINE&&enables==4);
- puts("PASS: no boot enable; bounded rate/position; loss stops and quiet interval; recovered position preload; held enable cannot rearm; release/press recovery; stale and disconnected Bluetooth stop; off-center press rejected; button stop; failed limit blocks recovery. Simulated hardware only.");
+ puts("PASS: late gamepad classification retained; connection without reports never arms; no boot enable; bounded rate/position; loss stops and quiet interval; recovered position preload; held enable cannot rearm; release/press recovery; stale and disconnected Bluetooth stop; off-center press rejected; button stop; failed limit blocks recovery. Simulated hardware only.");
 }

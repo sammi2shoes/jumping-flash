@@ -16,6 +16,7 @@ Phase phase = OFFLINE;
 ControllerPtr pad = nullptr;
 bool driverReady = false, cancelled = false, stopRequested = false, motorFault = false;
 uint32_t padReport = 0, retryAt = 0, pollAt = 0, releasedAt = 0, displayAt = 0;
+uint32_t padReports = 0, lastPadLog = 0;
 uint32_t modeCount = 0;
 uint8_t motorMode = 255, motorFlags = 0;
 uint16_t pendingIndex = 0;
@@ -26,21 +27,28 @@ float position = 0, target = 0, origin = 0;
 uint32_t bitsOf(float f) { uint32_t bits; memcpy(&bits, &f, 4); return bits; }
 float floatOf(uint32_t bits) { float f; memcpy(&f, &bits, 4); return f; }
 bool inputFresh() {
-  return pad && pad->isConnected() && padReport != 0 && uint32_t(millis() - padReport) < PAD_STALE_MS;
+  return pad && pad->isConnected() && pad->isGamepad() && padReport != 0 && uint32_t(millis() - padReport) < PAD_STALE_MS;
 }
 bool held() { return inputFresh() && pad->r1(); }
 bool centered() { return inputFresh() && abs(pad->axisX()) <= 60; }
 void connected(ControllerPtr candidate) {
-  if (!pad && candidate->isGamepad()) { pad = candidate; padReport = 0; Serial.println("Bluetooth connected; release RB/R1 to prepare."); }
+  // Bluepad32 can connect before the first report supplies the controller class.
+  // Retain the handle now; require actual gamepad reports before accepting input.
+  if (!pad) {
+    pad = candidate; padReport = 0; padReports = 0;
+    Serial.println("BT connected: waiting for gamepad reports. Release RB/R1.");
+  }
 }
 void disconnected(ControllerPtr candidate) {
-  if (candidate == pad) { pad = nullptr; padReport = 0; Serial.println("Bluetooth disconnected."); }
+  if (candidate == pad) { pad = nullptr; padReport = 0; padReports = 0; Serial.println("Bluetooth disconnected."); }
 }
 
 void service() {
   M5.update();
   const bool updated = BP32.update();
-  if (updated && pad && pad->isConnected() && pad->hasData()) padReport = millis();
+  if (updated && pad && pad->isConnected() && pad->isGamepad() && pad->hasData()) {
+    padReport = millis(); ++padReports;
+  }
   if (M5.BtnA.wasPressed()) stopRequested = true;
   while (Serial.available()) { char c = Serial.read(); if (c == 'x' || c == 'X') stopRequested = true; }
   if ((phase == ARMING || phase == ACTIVE) &&
@@ -179,7 +187,7 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
-  Serial.printf("RS05 recovery bench controller CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  Serial.printf("RS05 recovery bench v0.2 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
   Serial.println("RB/R1=hold enable; left X=slow motion. Button A on Stick or serial x=stop. No spinner output.");
 }
 
@@ -221,11 +229,21 @@ void loop() {
       if (!writeChecked(0x7016, bitsOf(target))) loseControl("CAN target acknowledgement lost");
     }
   }
+  if (uint32_t(millis() - lastPadLog) >= 1000) {
+    lastPadLog = millis();
+    const bool linked = pad && pad->isConnected();
+    const bool gamepad = linked && pad->isGamepad();
+    Serial.printf("PAD link=%u gamepad=%u fresh=%u reports=%lu age_ms=%ld leftX=%d RB_R1=%u phase=%u\n",
+      unsigned(linked), unsigned(gamepad), unsigned(inputFresh()), (unsigned long)padReports,
+      padReport ? long(uint32_t(millis() - padReport)) : -1L,
+      gamepad ? pad->axisX() : 0, unsigned(gamepad && pad->r1()), unsigned(phase));
+  }
   if (uint32_t(now - displayAt) >= 250) {
     displayAt = now;
     const char* names[] = {"CAN OFFLINE", "CONFIGURING", "RELEASE RB/R1", "READY", "ARMING", "ACTIVE"};
     M5.Display.setCursor(0, 0);
-    M5.Display.printf("%-16s\nPAD: %-10s\n1A / +/-5 deg\nRB/R1: enable\nLeft X: move\nA / x: STOP\n", names[phase], inputFresh() ? "FRESH" : "LOST/STALE");
+    const char* padState = !pad || !pad->isConnected() ? "NO LINK" : !pad->isGamepad() ? "WAIT TYPE" : !padReport ? "NO REPORTS" : inputFresh() ? "FRESH" : "STALE";
+    M5.Display.printf("%-16s\nPAD: %-10s\n1A / +/-5 deg\nRB/R1: enable\nLeft X: move\nA / x: STOP\n", names[phase], padState);
   }
   delay(1);
 }
