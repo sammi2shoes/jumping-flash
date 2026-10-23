@@ -11,6 +11,7 @@ constexpr uint32_t WATCHDOG = 20000; // Tested nominal one-second motor timeout.
 constexpr uint32_t PAD_STALE_MS = 200, RETRY_MS = 1250;
 constexpr float CURRENT = 1.0f, SPEED = 1.0f;
 constexpr float ACCELERATION = 5.0f; // Host target-rate ramp, rad/s^2.
+constexpr float EXTEND_SIGN = -1.0f; // Extension decreases encoder position.
 constexpr float TRAVEL = 80.0f * PI / 180.0f;
 enum Phase { OFFLINE, CONFIGURING, WAIT_RELEASE, READY, ARMING, ACTIVE };
 Phase phase = OFFLINE;
@@ -225,9 +226,10 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
-  Serial.printf("RS05 recovery bench v0.8 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  Serial.printf("RS05 recovery bench v0.9 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
   if (driverReady) Serial.println(stopMotor() ? "Startup disabled confirmed." : "Startup STOP unconfirmed; use motor power cutoff if needed.");
   Serial.println("Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.");
+  Serial.println("Extension direction: decreasing encoder position; right stick extends, left retracts.");
   Serial.println("RB/R1=hold enable; left X=slow motion. Button A on Stick or serial x=stop. No spinner output.");
 }
 
@@ -260,16 +262,18 @@ void loop() {
       if (dt > .05f) dt = .05f;
       pollAt = now;
       if (!readPosition()) { loseControl("CAN feedback lost"); return; }
-      if (position < origin - .035f || position > origin + TRAVEL + .035f) { loseControl("measured bench travel exceeded"); return; }
+      const float measuredTravel = EXTEND_SIGN * (position - origin);
+      if (measuredTravel < -.035f || measuredTravel > TRAVEL + .035f) { loseControl("measured bench travel exceeded"); return; }
       const int axis = pad && inputFresh() ? pad->axisX() : 0;
       const float rate = abs(axis) <= 60 ? 0.0f : float(axis) / 512.0f;
       const float desiredRate = rate * SPEED;
       const float change = ACCELERATION * dt;
       if (targetRate < desiredRate) targetRate = fminf(targetRate + change, desiredRate);
       else targetRate = fmaxf(targetRate - change, desiredRate);
-      target += targetRate * dt;
-      if (target >= origin + TRAVEL) { target = origin + TRAVEL; targetRate = 0; }
-      if (target <= origin) { target = origin; targetRate = 0; }
+      float travel = EXTEND_SIGN * (target - origin) + targetRate * dt;
+      if (travel >= TRAVEL) { travel = TRAVEL; targetRate = 0; }
+      if (travel <= 0) { travel = 0; targetRate = 0; }
+      target = origin + EXTEND_SIGN * travel;
       if (!writeChecked(0x7016, bitsOf(target))) loseControl("CAN target acknowledgement lost");
     }
   }
@@ -278,7 +282,7 @@ void loop() {
     const bool linked = pad && pad->isConnected();
     const bool gamepad = linked && pad->isGamepad();
     if (phase == ACTIVE) Serial.printf("MOTION measured_deg=%.2f target_deg=%.2f rate_deg_s=%.2f limit=0..80\n",
-      (position-origin)*180.0f/PI, (target-origin)*180.0f/PI, targetRate*180.0f/PI);
+      EXTEND_SIGN*(position-origin)*180.0f/PI, EXTEND_SIGN*(target-origin)*180.0f/PI, targetRate*180.0f/PI);
     Serial.printf("PAD link=%u gamepad=%u fresh=%u reports=%lu age_ms=%ld leftX=%d RB_R1=%u phase=%u\n",
       unsigned(linked), unsigned(gamepad), unsigned(inputFresh()), (unsigned long)padReports,
       padReport ? long(uint32_t(millis() - padReport)) : -1L,
