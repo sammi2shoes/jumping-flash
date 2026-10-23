@@ -14,7 +14,7 @@ The tested watchdog setting is20,000 counts, nominal1second. This establishes th
 
 ## MotorRecovery: current fixed-reference prototype
 
-v0.15 requires a manually declared retracted pose (StickB held2seconds while disabled), captures zero once per startup, retains it through confirmed stops and Bluetooth reconnection, and blocks enable when motor/CAN reference trust is lost. R1 remains a held enable; neutral commands active position hold while held. Limits0..80deg; manual/Y slow profile1A/1rad/s/5rad/s^2. X-cycle extension profile3A/5rad/s/40rad/s^2 has a successful free-swing hardware trace; loaded push/jump performance is not validated. See MOTOR-RECOVERY.md for required startup and reference limitations. No fixed reference survives a Stick restart; no hardware home sensor exists yet.
+v0.16 requires a manually declared retracted pose (StickB held2seconds while disabled), captures zero once per startup, retains it through confirmed stops and Bluetooth reconnection, and blocks enable when motor/CAN reference trust is lost. R1 remains a held enable; neutral commands active position hold while held. Limits0..80deg; manual/Y slow profile1A/1rad/s/5rad/s^2. X-cycle extension profile3A/5rad/s/40rad/s^2 has a successful free-swing hardware trace; loaded push/jump performance is not validated. See MOTOR-RECOVERY.md for required startup and reference limitations. No fixed reference survives a Stick restart; no hardware home sensor exists yet.
 
 The v0.6 log verifies both+/-20deg bench endpoints and R1-release disable. The user reports v0.9 direction, motion, controller-loss stop and reconnection worked with the leg system attached, superseding our assumption it remained unloaded. The user reports1A is sufficient to hold the lighter-spring test rig. v0.12 logs show fixed-angle operation after arming and completed cycles; startup repeatability and heavier-spring holding remain unmeasured. Host simulation covers fixed zero, held-enable stops/recovery, reference-invalid lockout and prior transport/readback guards.
 
@@ -51,3 +51,9 @@ LegacySetup/LegacyParameterRead/MotorJog and the chronological RS05-FIRMWARE.md 
 ## Validation
 
 scripts/check.sh runs all host simulations and Python checks. scripts/build.sh uses the pinned cloud toolchain; specify the firmware environment. Host simulations and builds do not replace device acceptance tests. No new mechanism motion should use the relative bench controller as an absolute leg-limit implementation.
+
+## Next phase: RadioMaster AX12 Android APK
+
+The AX12 is available for installing and testing an APK. Finish the v0.16 stroke timing capture, then prioritize the Android controller while the walking rig is being built over the next few days. First verify AX12 gimbal/switch input APIs and Android Bluetooth capabilities against its official documentation and actual device. The app needs mode selection, operator inputs, connection/reference/armed status and robot telemetry. A custom APK does not automatically present the HID interface expected by the current Bluepad32 firmware; select and document the app-to-Stick transport before implementing it. Link loss must stop functions, discard pending motion and require neutral inputs and deliberate rearming after reconnect. Spinner output and two-leg motion remain unimplemented.
+
+v0.16 is a compiled, host-tested low-latency out-and-return build awaiting device traces. It removes synchronous reads/formatting from the fast window, retains3A/5rad/s and adds immediate retraction. See MOTOR-RECOVERY.md for changed fast-window cancellation and diagnostics.

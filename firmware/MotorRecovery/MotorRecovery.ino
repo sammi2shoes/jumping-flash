@@ -14,7 +14,7 @@ constexpr float LAUNCH_CURRENT = 3.0f, LAUNCH_SPEED = 5.0f, LAUNCH_ACCELERATION 
 float expectedCurrent = CURRENT, expectedSpeed = SPEED;
 bool profilePending = false;
 uint32_t lastControlMs = 0, burstAt = 0;
-constexpr uint32_t MAX_BURST_MS = 1000;
+constexpr uint32_t MAX_BURST_MS = 2000;
 constexpr float ACCELERATION = 5.0f; // Host target-rate ramp, rad/s^2.
 constexpr float EXTEND_SIGN = -1.0f; // Extension decreases encoder position.
 constexpr float TRAVEL = 80.0f * PI / 180.0f;
@@ -36,10 +36,11 @@ uint32_t positionAt = 0, iqAt = 0, velocityAt = 0, voltageAt = 0, traceAt = 0;
 bool iqAvailable = true, velocityAvailable = true, voltageAvailable = true;
 uint8_t readStatus = 255;
 bool referenceCaptured = false, referenceValid = false;
+bool fastCritical = false;
 bool referenceButtonReleased = false;
 uint32_t referenceHoldAt = 0, signatureAt = 0;
 void invalidateReference() {
-  if (referenceValid) Serial.println("REFERENCE INVALID: motor/CAN state uncertain. Restart and manually reference at retracted pose.");
+  if (referenceValid && !fastCritical) Serial.println("REFERENCE INVALID: motor/CAN state uncertain. Restart and manually reference at retracted pose.");
   referenceValid = false;
 }
 bool withinReference() {
@@ -51,7 +52,7 @@ bool withinReference() {
 // Only a confirmed STOP after an input abort may preserve reference trust.
 enum OperationFailure { OP_OK, OP_INPUT_CANCEL, OP_CAN_FAILURE };
 OperationFailure operationFailure = OP_OK;
-enum CycleStage { MANUAL, RETRACT, SETTLE, EXTEND, COMPLETE, LAUNCH_SETTLE };
+enum CycleStage { MANUAL, RETRACT, SETTLE, EXTEND, COMPLETE, RECOVER_SETTLE, RECOVER };
 CycleStage cycleStage = MANUAL, cycleAtPosition = MANUAL;
 bool cycleRequested = false, cycleButtonDown = true, fastButtonDown = true;
 bool cycleRequestFast = false, fastCycle = false;
@@ -62,12 +63,38 @@ void clearCycle() {
   cycleStage = MANUAL; cycleRequested = cycleRequestFast = fastCycle = false; cycleStageAt = cycleSettledAt = 0;
 }
 const char* cycleNameFor(unsigned stage) {
-  const char* names[] = {"MANUAL", "RETRACT", "PAUSE", "EXTEND", "DONE/HOLD", "BRAKE/HOLD"};
+  const char* names[] = {"MANUAL", "RETRACT", "PAUSE", "EXTEND", "DONE/HOLD", "HOLD RETRACTED", "RECOVER"};
   return names[stage];
 }
 const char* cycleName() { return cycleNameFor(unsigned(cycleStage)); }
-bool fastExtension() { return fastCycle && (cycleStage == EXTEND || cycleStage == LAUNCH_SETTLE); }
+bool fastExtension() { return fastCycle && (cycleStage == EXTEND || cycleStage == RECOVER_SETTLE || cycleStage == RECOVER); }
 uint32_t controlPeriodMs() { return fastExtension() ? 10 : 50; }
+constexpr float PACKED_SPAN = 25.14f; // RS05 sample code: -12.57..12.57, big-endian pairs.
+uint32_t packedAtUs = 0, packedCount = 0;
+float packedRaw = 0, mappedPosition = 0, previousPacked = 0, packedVelocity = 0, packedTorque = 0;
+float completionTravel = TRAVEL;
+struct FastSample { uint32_t us, feedbackUs, intervalUs; float pos, command, velocity, torque; uint8_t stage; };
+FastSample fastSamples[256];
+uint16_t fastCount = 0, fastFlush = 0;
+uint32_t fastDropped = 0, fastStartUs = 0, fastTurnUs = 0, fastLastCommandUs = 0;
+uint32_t fastLastSampleUs = 0, fastCommands = 0, fastMaxIntervalUs = 0;
+bool fastSummaryPending = false;
+const char* fastResult = "none";
+void cachePackedFeedback(const uint8_t* data) {
+  const float raw = (uint16_t(data[0]) * 256U + data[1]) * (PACKED_SPAN / 65535.0f) - 12.57f;
+  if (fastCritical) {
+    float delta = raw - previousPacked;
+    if (delta > PACKED_SPAN / 2) delta -= PACKED_SPAN;
+    if (delta < -PACKED_SPAN / 2) delta += PACKED_SPAN;
+    if (fabsf(delta) > .2f) invalidateReference();
+    else mappedPosition += delta;
+    previousPacked = raw;
+  }
+  packedRaw = raw; packedAtUs = micros(); ++packedCount;
+  packedVelocity = (uint16_t(data[2]) * 256U + data[3]) * (100.0f / 65535.0f) - 50.0f;
+  packedTorque = (uint16_t(data[4]) * 256U + data[5]) * (11.0f / 65535.0f) - 5.5f;
+}
+
 bool held();
 bool inputCancelled() {
   return referenceValid && !motorFault &&
@@ -80,7 +107,7 @@ void blockedOperation() {
 uint32_t bitsOf(float f) { uint32_t bits; memcpy(&bits, &f, 4); return bits; }
 float floatOf(uint32_t bits) { float f; memcpy(&f, &bits, 4); return f; }
 bool inputFresh() {
-  return pad && pad->isConnected() && pad->isGamepad() && padReport != 0 && uint32_t(millis() - padReport) < PAD_STALE_MS;
+  return pad && pad->isConnected() && pad->isGamepad() && padReport != 0 && uint32_t(millis() - padReport) < (fastCritical ? 50U : PAD_STALE_MS);
 }
 bool held() { return inputFresh() && pad->r1(); }
 bool centered() { return inputFresh() && abs(pad->axisX()) <= 60; }
@@ -89,15 +116,16 @@ void connected(ControllerPtr candidate) {
   // Retain the handle now; require actual gamepad reports before accepting input.
   if (!pad) {
     pad = candidate; padReport = 0; padReports = 0; cycleButtonDown = fastButtonDown = true;
-    Serial.println("BT connected: waiting for gamepad reports. Release RB/R1.");
+    if (!fastCritical) Serial.println("BT connected: waiting for gamepad reports. Release RB/R1.");
   }
 }
 void disconnected(ControllerPtr candidate) {
-  if (candidate == pad) { pad = nullptr; padReport = 0; padReports = 0; cycleButtonDown = fastButtonDown = true; Serial.println("Bluetooth disconnected."); }
+  if (candidate == pad) { pad = nullptr; padReport = 0; padReports = 0; cycleButtonDown = fastButtonDown = true; if (!fastCritical) Serial.println("Bluetooth disconnected."); }
 }
 
 void service() {
-  M5.update();
+  if (!fastCritical) M5.update();
+  else if (digitalRead(37) == LOW) stopRequested = true;
   const bool updated = BP32.update();
   if (updated && pad && pad->isConnected() && pad->isGamepad() && pad->hasData()) {
     padReport = millis(); ++padReports;
@@ -115,13 +143,14 @@ void service() {
   if ((phase == ARMING || phase == ACTIVE) &&
       (!referenceValid || !held() || stopRequested || M5.BtnA.isPressed() || (phase == ARMING && !centered()))) cancelled = true;
   twai_message_t f;
-  for (int n = 0; n < 64 && twai_receive(&f, 0) == ESP_OK; ++n) {
+  for (int n = 0; n < (fastCritical ? 8 : 64) && twai_receive(&f, 0) == ESP_OK; ++n) {
     if (!f.extd || f.rtr || f.data_length_code != 8 || ((f.identifier >> 8) & 255) != MOTOR) continue;
     const uint8_t type = (f.identifier >> 24) & 31;
     // An identification broadcast after reference capture can indicate restart.
     // Conservatively invalidate rather than infer that the old coordinate survived.
     if (type == 0 && referenceCaptured) invalidateReference();
     if ((type == 2 || type == 24) && (f.identifier & 255) == HOST) {
+      cachePackedFeedback(f.data);
       ++modeCount; motorMode = (f.identifier >> 22) & 3; motorFlags = (f.identifier >> 16) & 63;
       if (motorFlags) motorFault = true;
       if (phase == ACTIVE && motorMode != 2) { cancelled = true; invalidateReference(); }
@@ -257,11 +286,12 @@ bool setMotorProfile(float amps, float speed) {
 }
 
 void loseControl(const char* reason, bool uncertain = false) {
+  if (fastCritical) { fastResult = reason; fastSummaryPending = true; fastCritical = false; }
   motorIq = motorVelocity = motorVoltage = NAN;
   iqAt = velocityAt = voltageAt = traceAt = 0;
   phase = OFFLINE; pending = false; releasedAt = 0; targetRate = 0; referenceHoldAt = 0; clearCycle();
-  Serial.printf("DISARMED: %s; old target discarded.\n", reason);
   const bool stopped = stopMotor();
+  Serial.printf("DISARMED: %s; old target discarded.\n", reason);
   Serial.println(stopped ? "Disabled confirmed." : "STOP UNCONFIRMED: motor watchdog is fallback; use power cutoff if needed.");
   cancelled = stopRequested = false;
   if (stopped && !uncertain && !motorFault &&
@@ -417,6 +447,106 @@ bool armMotor() {
   return true;
 }
 
+bool prepareFastWindow() {
+  if (!readPosition()) return false;
+  for (int i = 0; i < 2; ++i) {
+    const uint32_t before = packedCount;
+    if (!writeChecked(0x7016, bitsOf(position))) return false;
+    service();
+    if (packedCount == before || uint32_t(micros() - packedAtUs) > 20000 || motorMode != 2 || motorFlags) {
+      operationFailure = OP_CAN_FAILURE;
+      Serial.println("FAST blocked: fresh RS05 packed command feedback not verified."); return false;
+    }
+  }
+  if (!readPosition() || fabsf(remainderf(packedRaw - position, PACKED_SPAN)) > .01f) {
+    operationFailure = OP_CAN_FAILURE;
+    Serial.println("FAST blocked: packed/parameter position alignment not verified."); return false;
+  }
+  mappedPosition = position; previousPacked = packedRaw; // Mapping only; origin is untouched.
+  fastCount = fastFlush = 0; fastDropped = fastCommands = fastMaxIntervalUs = 0;
+  fastStartUs = fastLastCommandUs = micros(); fastTurnUs = fastLastSampleUs = 0;
+  fastSummaryPending = false; fastResult = "running";
+  Serial.println("FAST window: buffered diagnostics; immediate inward target after outward arrival. R1 or joystick cancels/disarms.");
+  fastCritical = true; return true;
+}
+
+// 1=accepted, 0=busy (try next pass), -1=transport error. No wait/readback/printing.
+int sendFastTarget(float command) {
+  twai_status_info_t status = {};
+  if (twai_get_status_info(&status) != ESP_OK || status.state != TWAI_STATE_RUNNING) return -1;
+  if (status.msgs_to_tx) return 0;
+  twai_message_t f = {};
+  f.identifier = (uint32_t(18) << 24) | (uint32_t(HOST) << 8) | MOTOR;
+  f.extd = 1; f.ss = 1; f.data_length_code = 8; f.data[0] = 0x16; f.data[1] = 0x70;
+  memcpy(f.data + 4, &command, 4);
+  return twai_transmit(&f, 0) == ESP_OK ? 1 : -1;
+}
+
+void runFastWindow() {
+  const uint32_t nowUs = micros();
+  if (cancelled || stopRequested || !held() || motorFault || !referenceValid) {
+    loseControl("fast window cancelled by input/fault/reference", motorFault || !referenceValid); return;
+  }
+  if (!packedAtUs || uint32_t(nowUs - packedAtUs) >= 20000) {
+    loseControl("fast packed feedback stale", true); return;
+  }
+  const float measured = EXTEND_SIGN * (mappedPosition - origin);
+  if (measured < -.035f || measured > TRAVEL + .035f) {
+    loseControl("fast measured travel exceeded fixed limits", true); return;
+  }
+  if (abs(pad->axisX()) > 60) { loseControl("joystick cancelled fast window"); return; }
+  if (uint32_t(millis() - burstAt) >= MAX_BURST_MS || uint32_t(millis() - cycleStageAt) >= 1000) {
+    loseControl("1-second fast-stroke deadline / 2-second burst deadline"); return;
+  }
+  const uint32_t interval = uint32_t(nowUs - fastLastCommandUs);
+  if (interval < 2000) return;
+  const bool turn = cycleStage == EXTEND && measured >= TRAVEL - ARRIVAL;
+  float nextRate = targetRate, nextTarget = target;
+  if (cycleStage == RECOVER || turn) { nextTarget = origin; nextRate = -LAUNCH_SPEED; }
+  else {
+    const float dt = fminf(interval * .000001f, .005f);
+    nextRate = fminf(LAUNCH_SPEED, targetRate + LAUNCH_ACCELERATION * dt);
+    const float travel = fminf(TRAVEL, fmaxf(0.0f, EXTEND_SIGN * (target - origin)) + nextRate * dt);
+    nextTarget = origin + EXTEND_SIGN * travel;
+  }
+  const int sent = sendFastTarget(nextTarget);
+  if (sent < 0 || (sent == 0 && interval >= 10000)) { loseControl("fast target transport failed", true); return; }
+  if (sent == 0) return;
+  if (turn) { cycleStage = RECOVER; fastTurnUs = nowUs; cycleStageAt = millis(); }
+  target = nextTarget; targetRate = nextRate; fastLastCommandUs = nowUs;
+  lastControlMs = (interval + 999) / 1000; if (interval > fastMaxIntervalUs) fastMaxIntervalUs = interval; ++fastCommands;
+  if (!fastLastSampleUs || uint32_t(nowUs - fastLastSampleUs) >= 10000) {
+    fastLastSampleUs = nowUs;
+    if (fastCount < 256) fastSamples[fastCount++] = {nowUs, packedAtUs, interval, mappedPosition, target, packedVelocity, packedTorque, uint8_t(cycleStage)};
+    else ++fastDropped;
+  }
+  if (cycleStage == RECOVER && measured <= ARRIVAL) {
+    fastCritical = false; fastSummaryPending = true; fastResult = "recovered";
+    position = mappedPosition; completionTravel = 0; target = origin; targetRate = 0;
+    cycleStage = RECOVER_SETTLE; cycleStageAt = millis(); cycleSettledAt = 0; pollAt = millis();
+    const float cached = position;
+    if (!readPosition() || fabsf(position - cached) > .01f) {
+      loseControl("post-window packed/parameter position disagreement", true); return;
+    }
+  }
+}
+
+void flushFastDiagnostics() {
+  if (fastCritical) return;
+  if (fastSummaryPending) {
+    fastSummaryPending = false;
+    Serial.printf("FAST_SUMMARY result=%s commands=%lu max_interval_us=%lu out_us=%lu samples=%u dropped=%lu\n",
+      fastResult, (unsigned long)fastCommands, (unsigned long)fastMaxIntervalUs,
+      (unsigned long)(fastTurnUs ? fastTurnUs - fastStartUs : 0), fastCount, (unsigned long)fastDropped);
+  }
+  if (fastFlush < fastCount) {
+    const FastSample& f = fastSamples[fastFlush++]; const float deg = 180.0f / PI;
+    Serial.printf("FAST_TRACE,%lu,%lu,%s,%.3f,%.3f,%.3f,%.3f,%lu\n", (unsigned long)f.us,
+      (unsigned long)f.feedbackUs, cycleNameFor(f.stage), EXTEND_SIGN*(f.pos-origin)*deg,
+      EXTEND_SIGN*(f.command-origin)*deg, EXTEND_SIGN*f.velocity*deg, f.torque, (unsigned long)f.intervalUs);
+  }
+}
+
 void setup() {
   auto cfg = M5.config(); M5.begin(cfg); Serial.begin(115200);
   M5.Display.setRotation(1); M5.Display.setTextSize(2);
@@ -429,23 +559,25 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
-  Serial.printf("RS05 position hold v0.15 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  Serial.printf("RS05 position hold v0.16 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
   if (driverReady) Serial.println(stopMotor() ? "Startup disabled confirmed." : "Startup STOP unconfirmed; use motor power cutoff if needed.");
   Serial.println("Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.");
   Serial.println("Extension direction: decreasing encoder position; right stick extends, left retracts.");
+  Serial.println("FAST_TRACE_HEADER,t_us,feedback_us,stage,pos_deg,command_deg,velocity_deg_s,motor_torque_Nm,interval_us");
   Serial.println("TRACE_HEADER,t_ms,pos_ms,cycle_at_pos,pos_deg,target_at_pos_deg,error_deg,command_deg,command_rate_deg_s,vel_ms,vel_deg_s,iq_ms,iq_A,vbus_ms,vbus_V,profile_A,profile_rad_s,control_ms,cycle_mode");
-  Serial.println("Controller Y: SLOW cycle (1 A/1 rad/s). Controller X: FAST extension (3 A/5 rad/s) after slow retract. R1 must stay held; stick overrides.");
+  Serial.println("Controller Y: SLOW cycle (1 A/1 rad/s). Controller X: buffered low-latency OUT/RETURN (3 A/5 rad/s) after slow retract. R1 must stay held; stick overrides.");
   Serial.println("RB/R1=hold enable; left X=motion; neutral=hold position. Button A on Stick or serial x=stop. No spinner output.");
 }
 
 void loop() {
   service();
+  if (fastCritical) { runFastWindow(); return; }
   const uint32_t now = millis();
   if (driverReady) {
     if (stopRequested || ((phase == ACTIVE || phase == ARMING) && (cancelled || motorFault || !referenceValid || !held()))) {
       loseControl("R1 released, stop, controller loss/stale data, or motor state change", motorFault || !referenceValid);
     } else if (phase == ACTIVE && burstAt && uint32_t(now - burstAt) >= MAX_BURST_MS) {
-      loseControl("fast extension exceeded 1-second burst deadline");
+      loseControl("fast cycle exceeded 2-second burst deadline");
     } else if (phase == OFFLINE && inputFresh() && int32_t(now - retryAt) >= 0) {
       if (!recoverDriver()) retryAt = millis() + RETRY_MS;
       else if (!configureDisabled()) loseControl("CAN/configuration not verified", true);
@@ -496,7 +628,7 @@ void loop() {
       if (cycleRequested) {
         cycleRequested = false;
         if (centered() && held() && (cycleStage == MANUAL || cycleStage == COMPLETE)) {
-          fastCycle = cycleRequestFast; cycleRequestFast = false;
+          fastCycle = cycleRequestFast; cycleRequestFast = false; completionTravel = fastCycle ? 0.0f : TRAVEL;
           cycleStage = RETRACT; cycleStageAt = millis(); cycleSettledAt = 0;
           target = position; targetRate = 0;
           Serial.printf("CYCLE RETRACT (%s): 1 A / 1 rad/s; extension %s. Keep R1 held.\n",
@@ -519,8 +651,8 @@ void loop() {
       if (cycleStage == RETRACT) desiredRate = -fminf(SPEED, sqrtf(2 * ACCELERATION * travel));
       const float acceleration = fastCycle && cycleStage == EXTEND ? LAUNCH_ACCELERATION : ACCELERATION;
       if (cycleStage == EXTEND) desiredRate = fminf(fastCycle ? LAUNCH_SPEED : SPEED, sqrtf(2 * acceleration * (TRAVEL - travel)));
-      if (cycleStage == SETTLE || cycleStage == COMPLETE || cycleStage == LAUNCH_SETTLE) {
-        travel = cycleStage == SETTLE ? 0.0f : TRAVEL; desiredRate = 0; targetRate = 0;
+      if (cycleStage == SETTLE || cycleStage == COMPLETE || cycleStage == RECOVER_SETTLE || cycleStage == RECOVER) {
+        travel = cycleStage == SETTLE || cycleStage == RECOVER_SETTLE ? 0.0f : completionTravel; desiredRate = 0; targetRate = 0;
       }
       const float change = acceleration * dt;
       if (targetRate < desiredRate) targetRate = fminf(targetRate + change, desiredRate);
@@ -541,33 +673,32 @@ void loop() {
             if (fastCycle && !setMotorProfile(LAUNCH_CURRENT, LAUNCH_SPEED)) {
               loseFailedOperation("fast profile not verified; extension cancelled"); return;
             }
+            if (fastCycle && !prepareFastWindow()) {
+              loseFailedOperation("fast packed feedback preflight failed"); return;
+            }
             cycleStage = EXTEND; cycleStageAt = millis();
+            if (fastCritical) return;
             Serial.printf("CYCLE EXTEND (%s) t_ms=%lu: fixed 80-degree endpoint.\n", fastCycle ? "FAST" : "SLOW", (unsigned long)cycleStageAt);
           }
         }
       } else if (cycleStage == EXTEND && TRAVEL - travel <= .0002f && fabsf(measuredTravel - TRAVEL) <= ARRIVAL) {
-        targetRate = 0;
-        if (fastCycle) {
-          Serial.printf("FAST endpoint arrived after %lu ms; holding burst profile until position settles.\n", (unsigned long)(millis() - cycleStageAt));
-          cycleStage = LAUNCH_SETTLE; cycleStageAt = millis(); cycleSettledAt = 0;
-        } else {
-          cycleStage = COMPLETE;
-          Serial.println("CYCLE COMPLETE: low-current extended hold; fresh Y/X press for another cycle.");
-        }
-      } else if (cycleStage == LAUNCH_SETTLE) {
-        if (fabsf(measuredTravel - TRAVEL) > ARRIVAL) cycleSettledAt = 0;
+        cycleStage = COMPLETE; targetRate = 0;
+        Serial.println("SLOW CYCLE COMPLETE: extended hold; fresh Y/X press for another cycle.");
+      } else if (cycleStage == RECOVER_SETTLE) {
+        if (fabsf(measuredTravel) > ARRIVAL) cycleSettledAt = 0;
         else {
           if (!cycleSettledAt) cycleSettledAt = millis();
           if (uint32_t(millis() - cycleSettledAt) >= 150) {
             if (!setMotorProfile(CURRENT, SPEED)) { loseFailedOperation("holding profile restoration failed"); return; }
             cycleStage = COMPLETE; targetRate = 0;
-            Serial.println("FAST CYCLE COMPLETE: 1 A holding profile restored; fresh Y/X press for another cycle.");
+            Serial.println("FAST CYCLE COMPLETE: retracted; 1 A holding profile restored.");
           }
         }
       }
       if (!logMotorTrace()) { loseFailedOperation("motor telemetry transaction failed"); return; }
     }
   }
+  flushFastDiagnostics();
   if (uint32_t(millis() - lastPadLog) >= 1000) {
     lastPadLog = millis();
     const bool linked = pad && pad->isConnected();

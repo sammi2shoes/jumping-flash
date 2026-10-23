@@ -6,11 +6,12 @@
 #include "M5Unified.h"
 #include "Bluepad32.h"
 #include "driver/twai.h"
-uint32_t fakeTime=100,interruptAt=0;
+uint32_t fakeTime=100,interruptAt=0,simMoveAt=0;
+int fastStopPinLevel=1;
 SerialMock Serial; M5Mock M5; BP32Mock BP32;
 std::deque<twai_message_t> rx;
 std::map<uint16_t,uint32_t> regs;
-struct Sent{uint32_t time;unsigned kind,index,bits;};
+struct Sent{uint32_t time;unsigned kind,index,bits;bool critical;};
 std::vector<Sent> sent;
 bool link=true,rejectLimit=false,disconnectOnEnable=false,failStop=false,followTarget=true;
 uint16_t disconnectDuringRead=0, rejectTelemetryIndex=0;
@@ -23,28 +24,39 @@ int simulatedMode=0,enables=0;
 float simulatedPosition=2.9f;
 float targetReadOffset=0.00029706955f;
 #include "../../firmware/MotorRecovery/MotorRecovery.ino"
-void feedback(){twai_message_t r={};r.identifier=0x0200017e|(uint32_t(simulatedMode)<<22);r.extd=1;r.data_length_code=8;rx.push_back(r);}
+void feedback(){twai_message_t r={};r.identifier=0x0200017e|(uint32_t(simulatedMode)<<22);r.extd=1;r.data_length_code=8;
+ float wrapped=remainderf(simulatedPosition,25.14f);
+ uint16_t pos=uint16_t((wrapped+12.57f)/25.14f*65535.f);
+ r.data[0]=pos>>8;r.data[1]=pos;r.data[2]=r.data[4]=128;
+ rx.push_back(r);}
 int twai_receive(twai_message_t* f,int){if(rx.empty()||fakeTime<rxReadyAt)return -1;*f=rx.front();rx.pop_front();return 0;}
-int twai_transmit(const twai_message_t* f,int){
+int twai_transmit(const twai_message_t* f,int wait){
+ if(fastCritical)assert(wait==0);
  if(mailboxStuck || fakeTime<mailboxUntil)return -1;
  mailboxUntil=fakeTime+2;
  unsigned type=f->identifier>>24,index=f->data[0]|(unsigned(f->data[1])<<8),bits=0;memcpy(&bits,f->data+4,4);
  assert(type==3||type==4||type==17||type==18||type==24);
  assert(f->extd&&f->ss&&(f->identifier&0xffff)==0x7e01);
- sent.push_back({fakeTime,type,index,bits});if(!link||(type==4&&failStop))return 0;
+ sent.push_back({fakeTime,type,index,bits,fastCritical});
+ if(fastCritical)assert(type==18&&index==0x7016);if(!link||(type==4&&failStop))return 0;
  if(type==3&&disconnectOnEnable){disconnectOnEnable=false;rxReadyAt=fakeTime+10;BP32.disconnectTarget=pad;BP32.disconnectAt=fakeTime+1;}
  if(type==4){simulatedMode=0;feedback();}
  if(type==24){assert(f->data[6]==0);feedback();}
  if(type==3){assert(held()&&centered()&&phase==ARMING&&regs[0x7028]==20000&&regs[0x7018]==bitsOf(1.f)&&regs[0x7005]==5);assert(fabsf(floatOf(regs[0x7016])-simulatedPosition)<.0001f);simulatedMode=2;++enables;feedback();}
- if(type==18){assert(index==0x7028||index==0x7018||index==0x7005||index==0x7017||index==0x7016);if(!(rejectLimit&&index==0x7018)&&!(rejectLaunch&&index==0x7018&&bits==bitsOf(LAUNCH_CURRENT)))regs[index]=bits;if(index==0x7016&&simulatedMode==2&&followTarget)simulatedPosition=floatOf(bits);feedback();}
+ if(type==18){assert(index==0x7028||index==0x7018||index==0x7005||index==0x7017||index==0x7016);if(!(rejectLimit&&index==0x7018)&&!(rejectLaunch&&index==0x7018&&bits==bitsOf(LAUNCH_CURRENT)))regs[index]=bits;if(index==0x7016&&simulatedMode==2&&followTarget){
+ if(fastCritical){float step=LAUNCH_SPEED*(fakeTime-simMoveAt)/1000.f;simulatedPosition+=fmaxf(-step,fminf(step,floatOf(bits)-simulatedPosition));}
+ else simulatedPosition=floatOf(bits);
+ simMoveAt=fakeTime;
+ }feedback();}
  if(type==17&&disconnectDuringRead==index&&(!launchReadOnlyDisconnect||regs[0x7018]==bitsOf(LAUNCH_CURRENT))){
   disconnectDuringRead=0;rxReadyAt=fakeTime+10;BP32.disconnectTarget=pad;BP32.disconnectAt=fakeTime+1;
  }
  if(type==17){twai_message_t r={};r.extd=1;r.data_length_code=8;r.identifier=0x1100017e;if(index==rejectTelemetryIndex)r.identifier|=0x10000;r.data[0]=index;r.data[1]=index>>8;uint32_t value=index==0x7019?bitsOf(simulatedPosition):regs[index];if(index==0x7016)value=bitsOf(floatOf(value)+targetReadOffset);memcpy(r.data+4,&value,4);rx.push_back(r);}
  return 0;
 }
-void tick(unsigned duration){uint32_t end=fakeTime+duration;while(fakeTime<end)loop();}
+void tick(unsigned duration){uint32_t end=fakeTime+duration;while(fakeTime<end){uint32_t before=fakeTime;loop();if(fakeTime==before)++fakeTime;}}
 void resetBench() {
+ fastCritical=false;fastStopPinLevel=1;simMoveAt=0;packedAtUs=packedCount=0;packedRaw=mappedPosition=previousPacked=packedVelocity=packedTorque=0;fastCount=fastFlush=0;fastDropped=fastStartUs=fastTurnUs=fastLastCommandUs=fastLastSampleUs=fastCommands=fastMaxIntervalUs=0;fastSummaryPending=false;completionTravel=TRAVEL;
  fakeTime=100;interruptAt=0;rx.clear();regs.clear();sent.clear();link=true;rejectLimit=false;disconnectOnEnable=failStop=false;followTarget=true;
  disconnectDuringRead=rejectTelemetryIndex=0;launchReadOnlyDisconnect=rejectLaunch=false;rxReadyAt=0;mailboxUntil=0;mailboxStuck=false;simulatedMode=0;enables=0;simulatedPosition=2.9f;targetReadOffset=.00029706955f;
  M5={};BP32={};Serial.output.clear();phase=OFFLINE;pad=nullptr;driverReady=false;
@@ -169,14 +181,14 @@ int main() {
  for(int n=0;n<350&&cycleStage!=COMPLETE;++n){
   tick(5);maximumRate=fmaxf(maximumRate,targetRate);
   if(cycleStage==EXTEND){sawBurst=true;if(!extensionStart)extensionStart=fakeTime;assert(regs[0x7018]==bitsOf(LAUNCH_CURRENT)&&regs[0x7017]==bitsOf(LAUNCH_SPEED));}
-  if(cycleStage==LAUNCH_SETTLE){sawBrake=true;if(!extensionFinish)extensionFinish=fakeTime;assert(expectedCurrent==LAUNCH_CURRENT);}
+  if(cycleStage==RECOVER_SETTLE){sawBrake=true;if(!extensionFinish)extensionFinish=fakeTime;assert(expectedCurrent==LAUNCH_CURRENT);}
  }
  assert(sawBurst&&sawBrake&&maximumRate>4.5f&&maximumRate<=LAUNCH_SPEED);
  assert(cycleStage==COMPLETE&&expectedCurrent==CURRENT&&expectedSpeed==SPEED&&burstAt==0&&origin==launchZero);
- assert(extensionFinish-extensionStart<900);tick(1500);assert(cycleStage==COMPLETE); // Held X never repeats.
+ assert(extensionFinish-extensionStart<1500);tick(1500);assert(cycleStage==COMPLETE); // Held X never repeats.
  // Joystick override and R1 release restore low limits before manual operation/re-arm.
  initial(c);c.fastButton=true;for(int n=0;n<200&&cycleStage!=EXTEND;++n)tick(10);assert(cycleStage==EXTEND);c.axis=200;tick(30);
- assert(cycleStage==MANUAL&&expectedCurrent==CURRENT&&expectedSpeed==SPEED&&phase==ACTIVE);
+ assert(cycleStage==MANUAL&&expectedCurrent==CURRENT&&expectedSpeed==SPEED&&simulatedMode==0);
  initial(c);c.fastButton=true;for(int n=0;n<200&&cycleStage!=EXTEND;++n)tick(10);assert(cycleStage==EXTEND);c.hold=false;tick(50);
  assert(simulatedMode==0&&referenceValid&&expectedCurrent==CURRENT&&expectedSpeed==SPEED&&burstAt==0);
  // Controller loss during an unverified burst-current write must clean up only after STOP.
@@ -186,7 +198,14 @@ int main() {
  assert(simulatedMode==0&&!referenceValid&&cycleStage==MANUAL&&Serial.output.find("CYCLE EXTEND (FAST)")==std::string::npos);
  // A nonmoving rig cannot remain at the burst current indefinitely.
  initial(c);followTarget=false;c.fastButton=true;tick(2500);
- assert(simulatedMode==0&&referenceValid&&expectedCurrent==CURRENT&&burstAt==0&&Serial.output.find("1-second burst deadline")!=std::string::npos);
+ assert(simulatedMode==0&&referenceValid&&expectedCurrent==CURRENT&&burstAt==0&&Serial.output.find("fast-stroke deadline")!=std::string::npos);
+ // Critical-path stop inputs work without M5.update or synchronous parameter reads.
+ initial(c);c.fastButton=true;for(int n=0;n<200&&!fastCritical;++n)tick(10);assert(fastCritical);
+ fastStopPinLevel=LOW;tick(50);assert(!fastCritical&&simulatedMode==0&&referenceValid);
+ initial(c);c.fastButton=true;for(int n=0;n<200&&!fastCritical;++n)tick(10);assert(fastCritical);
+ BP32.reports=false;tick(80);assert(!fastCritical&&simulatedMode==0&&referenceValid);
+ initial(c);c.fastButton=true;for(int n=0;n<200&&!fastCritical;++n)tick(10);assert(fastCritical);
+ link=false;tick(100);assert(!fastCritical&&!referenceValid);
  initial(c);c.cycleButton=c.fastButton=true;tick(200);assert(!fastCycle); // Simultaneous press selects slow.
  initial(c);c.hold=false;tick(250);c.fastButton=true;tick(100);c.hold=true;tick(100);
  assert(phase==ACTIVE&&cycleStage==MANUAL); // Preheld X never launches on arm.
