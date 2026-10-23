@@ -9,8 +9,8 @@
 constexpr uint8_t MOTOR = 1, HOST = 126;
 constexpr uint32_t WATCHDOG = 20000; // Tested nominal one-second motor timeout.
 constexpr uint32_t PAD_STALE_MS = 200, RETRY_MS = 1250;
-constexpr float CURRENT = 1.0f, SPEED = 0.10f;
-constexpr float ACCELERATION = 0.50f; // Host target-rate ramp, rad/s^2.
+constexpr float CURRENT = 1.0f, SPEED = 1.0f;
+constexpr float ACCELERATION = 5.0f; // Host target-rate ramp, rad/s^2.
 constexpr float TRAVEL = 20.0f * PI / 180.0f;
 enum Phase { OFFLINE, CONFIGURING, WAIT_RELEASE, READY, ARMING, ACTIVE };
 Phase phase = OFFLINE;
@@ -209,7 +209,7 @@ bool armMotor() {
   target = origin = position;
   if (!writeChecked(0x7016, bitsOf(target)) || !held() || cancelled || motorFault) return false;
   targetRate = 0; phase = ACTIVE; pollAt = millis();
-  Serial.println("ARMED: RB/R1 hold + left X; bench travel +/-20 deg at 0.10 rad/s, 1 A.");
+  Serial.println("ARMED: RB/R1 hold + left X; bench travel +/-20 deg at 1.0 rad/s, 1 A.");
   return true;
 }
 
@@ -225,7 +225,7 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
-  Serial.printf("RS05 recovery bench v0.6 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  Serial.printf("RS05 recovery bench v0.7 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
   if (driverReady) Serial.println(stopMotor() ? "Startup disabled confirmed." : "Startup STOP unconfirmed; use motor power cutoff if needed.");
   Serial.println("Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.");
   Serial.println("RB/R1=hold enable; left X=slow motion. Button A on Stick or serial x=stop. No spinner output.");
