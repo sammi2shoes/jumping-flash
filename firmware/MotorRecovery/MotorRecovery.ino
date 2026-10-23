@@ -25,6 +25,10 @@ uint16_t pendingIndex = 0;
 bool pending = false, readDone = false, readOK = false;
 uint32_t readBits = 0;
 float position = 0, target = 0, origin = 0, targetRate = 0;
+float targetAtPosition = 0, motorIq = NAN, motorVelocity = NAN, motorVoltage = NAN;
+uint32_t positionAt = 0, iqAt = 0, velocityAt = 0, voltageAt = 0, traceAt = 0;
+bool iqAvailable = true, velocityAvailable = true, voltageAvailable = true;
+uint8_t readStatus = 255;
 bool referenceCaptured = false, referenceValid = false;
 bool referenceButtonReleased = false;
 uint32_t referenceHoldAt = 0, signatureAt = 0;
@@ -42,7 +46,7 @@ bool withinReference() {
 enum OperationFailure { OP_OK, OP_INPUT_CANCEL, OP_CAN_FAILURE };
 OperationFailure operationFailure = OP_OK;
 enum CycleStage { MANUAL, RETRACT, SETTLE, EXTEND, COMPLETE };
-CycleStage cycleStage = MANUAL;
+CycleStage cycleStage = MANUAL, cycleAtPosition = MANUAL;
 bool cycleRequested = false, cycleButtonDown = true;
 uint32_t cycleStageAt = 0, cycleSettledAt = 0;
 constexpr float ARRIVAL = 0.5f * PI / 180.0f;
@@ -50,10 +54,11 @@ constexpr uint32_t CYCLE_TIMEOUT_MS = 6000, CYCLE_PAUSE_MS = 300;
 void clearCycle() {
   cycleStage = MANUAL; cycleRequested = false; cycleStageAt = cycleSettledAt = 0;
 }
-const char* cycleName() {
+const char* cycleNameFor(unsigned stage) {
   const char* names[] = {"MANUAL", "RETRACT", "PAUSE", "EXTEND", "DONE/HOLD"};
-  return names[cycleStage];
+  return names[stage];
 }
+const char* cycleName() { return cycleNameFor(unsigned(cycleStage)); }
 bool held();
 bool inputCancelled() {
   return referenceValid && !motorFault &&
@@ -116,7 +121,7 @@ void service() {
     }
     if (type == 17 && (f.identifier & 255) == HOST && pending &&
         (uint16_t(f.data[0]) | (uint16_t(f.data[1]) << 8)) == pendingIndex) {
-      readDone = true; readOK = ((f.identifier >> 16) & 255) == 0;
+      readDone = true; readStatus = (f.identifier >> 16) & 255; readOK = readStatus == 0;
       memcpy(&readBits, f.data + 4, 4);
     }
   }
@@ -161,7 +166,7 @@ bool readValue(uint16_t index, uint32_t& bits) {
   operationFailure = OP_OK;
   service();
   if (cancelled || motorFault || stopRequested) { blockedOperation(); return false; }
-  pendingIndex = index; pending = true; readDone = readOK = false;
+  pendingIndex = index; pending = true; readDone = readOK = false; readStatus = 255;
   const uint8_t d[8] = {uint8_t(index), uint8_t(index >> 8), 0, 0, 0, 0, 0, 0};
   if (!sendPacket(17, d)) { pending = false; return false; }
   const uint32_t began = millis();
@@ -205,6 +210,8 @@ bool readPosition() {
   if (!readValue(0x7019, bits)) return false;
   position = floatOf(bits);
   if (!std::isfinite(position)) { operationFailure = OP_CAN_FAILURE; return false; }
+  // The command has not advanced during this read: compare like with like.
+  targetAtPosition = target; positionAt = millis(); cycleAtPosition = cycleStage;
   return true;
 }
 bool commandState(uint8_t type, uint8_t expected) {
@@ -226,6 +233,8 @@ bool stopMotor() {
 }
 
 void loseControl(const char* reason, bool uncertain = false) {
+  motorIq = motorVelocity = motorVoltage = NAN;
+  iqAt = velocityAt = voltageAt = traceAt = 0;
   phase = OFFLINE; pending = false; releasedAt = 0; targetRate = 0; referenceHoldAt = 0; clearCycle();
   Serial.printf("DISARMED: %s; old target discarded.\n", reason);
   const bool stopped = stopMotor();
@@ -245,6 +254,51 @@ void loseControl(const char* reason, bool uncertain = false) {
 void loseFailedOperation(const char* reason) {
   const bool inputAbort = operationFailure == OP_INPUT_CANCEL && referenceValid && !motorFault;
   loseControl(inputAbort ? "input cancelled transaction; stopping without changing zero" : reason, !inputAbort);
+}
+
+bool readTelemetry(uint16_t index, float& value, uint32_t& at, bool& available) {
+  if (!available) return true;
+  uint32_t bits;
+  if (!readValue(index, bits)) {
+    // Optional fields may be unsupported; never label an error payload as zero.
+    // Transport failures and input cancellation still follow normal stop paths.
+    if (readDone && readStatus == 1 && operationFailure == OP_CAN_FAILURE &&
+        referenceValid && !motorFault && !cancelled && !stopRequested) {
+      available = false; value = NAN; at = 0;
+      Serial.printf("TELEMETRY unavailable index=0x%04X status=1; field disabled for this startup.\n", index);
+      operationFailure = OP_OK;
+      return true;
+    }
+    return false;
+  }
+  value = floatOf(bits);
+  if (!std::isfinite(value)) {
+    value = NAN; at = 0; available = false;
+    Serial.printf("TELEMETRY invalid index=0x%04X; field disabled for this startup.\n", index);
+    return true;
+  }
+  at = millis(); return true;
+}
+
+bool logMotorTrace() {
+  if (uint32_t(millis() - traceAt) < 100) return true;
+  traceAt = millis(); // Schedule from request start, not completion of sequential reads.
+  if (!readTelemetry(0x701A, motorIq, iqAt, iqAvailable) ||
+      !readTelemetry(0x701B, motorVelocity, velocityAt, velocityAvailable)) return false;
+  if ((!voltageAt || uint32_t(millis() - voltageAt) >= 500) &&
+      !readTelemetry(0x701C, motorVoltage, voltageAt, voltageAvailable)) return false;
+  service();
+  if (cancelled || motorFault || stopRequested || !referenceValid) { blockedOperation(); return false; }
+  const uint32_t loggedAt = millis();
+  const float deg = 180.0f / PI;
+  const float measured = EXTEND_SIGN * (position - origin) * deg;
+  const float priorTarget = EXTEND_SIGN * (targetAtPosition - origin) * deg;
+  Serial.printf("TRACE,%lu,%lu,%s,%.3f,%.3f,%.3f,%.3f,%.3f,%lu,%.3f,%lu,%.4f,%lu,%.3f\n",
+    (unsigned long)loggedAt, (unsigned long)positionAt, cycleNameFor(unsigned(cycleAtPosition)), measured,
+    priorTarget, priorTarget - measured, EXTEND_SIGN * (target - origin) * deg, targetRate * deg,
+    (unsigned long)velocityAt, EXTEND_SIGN * motorVelocity * deg,
+    (unsigned long)iqAt, motorIq, (unsigned long)voltageAt, motorVoltage);
+  return true;
 }
 
 bool recoverDriver() {
@@ -338,10 +392,11 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
-  Serial.printf("RS05 position hold v0.12 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  Serial.printf("RS05 position hold v0.13 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
   if (driverReady) Serial.println(stopMotor() ? "Startup disabled confirmed." : "Startup STOP unconfirmed; use motor power cutoff if needed.");
   Serial.println("Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.");
   Serial.println("Extension direction: decreasing encoder position; right stick extends, left retracts.");
+  Serial.println("TRACE_HEADER,t_ms,pos_ms,cycle_at_pos,pos_deg,target_at_pos_deg,error_deg,command_deg,command_rate_deg_s,vel_ms,vel_deg_s,iq_ms,iq_A,vbus_ms,vbus_V");
   Serial.println("Controller Y: one retract/pause/extend cycle while R1 held and stick centered; stick movement cancels cycle.");
   Serial.println("RB/R1=hold enable; left X=motion; neutral=hold position. Button A on Stick or serial x=stop. No spinner output.");
 }
@@ -444,14 +499,15 @@ void loop() {
         cycleStage = COMPLETE; targetRate = 0;
         Serial.println("CYCLE COMPLETE: holding extended. Release/press controller Y for a new cycle; R1 release disables.");
       }
+      if (!logMotorTrace()) { loseFailedOperation("motor telemetry transaction failed"); return; }
     }
   }
   if (uint32_t(millis() - lastPadLog) >= 1000) {
     lastPadLog = millis();
     const bool linked = pad && pad->isConnected();
     const bool gamepad = linked && pad->isGamepad();
-    if (phase == ACTIVE) Serial.printf("MOTION measured_deg=%.2f target_deg=%.2f rate_deg_s=%.2f limit=0..80 cycle=%s\n",
-      EXTEND_SIGN*(position-origin)*180.0f/PI, EXTEND_SIGN*(target-origin)*180.0f/PI, targetRate*180.0f/PI, cycleName());
+    if (phase == ACTIVE) Serial.printf("MOTION measured_deg=%.2f target_at_pos_deg=%.2f rate_deg_s=%.2f limit=0..80 cycle=%s\n",
+      EXTEND_SIGN*(position-origin)*180.0f/PI, EXTEND_SIGN*(targetAtPosition-origin)*180.0f/PI, targetRate*180.0f/PI, cycleNameFor(unsigned(cycleAtPosition)));
     Serial.printf("PAD link=%u gamepad=%u fresh=%u reports=%lu age_ms=%ld leftX=%d RB_R1=%u phase=%u\n",
       unsigned(linked), unsigned(gamepad), unsigned(inputFresh()), (unsigned long)padReports,
       padReport ? long(uint32_t(millis() - padReport)) : -1L,

@@ -1,6 +1,6 @@
 # Single-leg prototype: fixed reference and held enable
 
-Current MotorRecovery v0.12 targets StickC Plus2, MiniCAN GPIO32TX/GPIO33RX, RS05 CAN2.0 firmware0.5.0.14, motor1/host126,1Mbps. Build environment motor-recovery. It supersedes the per-arm relative reference in v0.9 and earlier. The current prototype has no locking mechanism. One leg is attached; the spring can extend the mechanism when torque is disabled. No jump, spinner, second leg or automatic homing is implemented.
+Current MotorRecovery v0.13 targets StickC Plus2, MiniCAN GPIO32TX/GPIO33RX, RS05 CAN2.0 firmware0.5.0.14, motor1/host126,1Mbps. Build environment motor-recovery. It supersedes the per-arm relative reference in v0.9 and earlier. The current prototype has no locking mechanism. One leg is attached; the spring can extend the mechanism when torque is disabled. No jump, spinner, second leg or automatic homing is implemented.
 
 ## Startup and controls
 
@@ -23,7 +23,7 @@ This is not a physical home sensor or a reset-proof reference. Zero is in RAM, n
 
 ## Validation
 
-v0.12 host simulation covers required manual reference, short/unsafe button holds rejected, held R1 and neutral position hold, both80deg endpoints, unchanged zero through mid-stroke disarm/rearm and Bluetooth reconnection, recapture blocked, CAN/settings uncertainty blocking enable without changing zero, readback tolerances and mailbox handling. Hardware validation of this version is pending. Prior v0.6 logs establish observed motion/R1-release disable; the user reported later v0.9 motion, controller-loss stop/reconnect and correct direction with the leg attached. Those reports do not validate this new fixed-reference implementation or holding torque under spring load. Historical version notes below describe earlier behavior and are not current operating instructions.
+v0.13 host simulation covers required manual reference, short/unsafe button holds rejected, held R1 and neutral position hold, both80deg endpoints, unchanged zero through mid-stroke disarm/rearm and Bluetooth reconnection, recapture blocked, CAN/settings uncertainty blocking enable without changing zero, readback tolerances and mailbox handling. Hardware validation of this version is pending. Prior v0.6 logs establish observed motion/R1-release disable; the user reported later v0.9 motion, controller-loss stop/reconnect and correct direction with the leg attached. Those reports do not validate this new fixed-reference implementation or holding torque under spring load. Historical version notes below describe earlier behavior and are not current operating instructions.
 
 ## v0.2: Bluetooth connection classification and diagnostics
 
@@ -102,3 +102,23 @@ This is a single-motor sequence rehearsal, not a full-power jump or coordinated 
 The user's pasted log shows two completed retract/pause/extend/hold cycles, joystick override into manual control, then a third retraction interrupted by R1 release followed by Disabled confirmed and READY. [Selected exact log lines](bench-logs/motor-recovery-v0.12-cycle-excerpt.txt) preserve the evidence. An initial arm reports76.95deg rather than rebasing the current pose to0deg. Retraction pause reports0.09deg; completed extension samples report79.95deg and80.00deg. No CAN/readback/reference errors appear in the supplied log. Bluetooth remains fresh throughout this test; this run is not a controller-loss test.
 
 Moving samples show commanded versus measured differences up to4.89deg (31.89 versus27.00 on retraction), and4.86deg (73.48 versus78.34 on extension). Sparse untimestamped samples do not establish peak tracking error, actual acceleration, physical settling duration or launch energy. Endpoints converge, but transient tracking needs measurement before higher-speed launch tuning. Current remains1A for the lighter-spring test rig; no new motor settings or code changes were made from this result.
+
+## v0.13: timestamped current/velocity/tracking trace
+
+Motion settings, zero capture and controls are unchanged from v0.12. While ACTIVE, TRACE CSV records are emitted nominally10Hz. Filtered Iq0x701A and encoder velocity0x701B are read for each trace; bus voltage0x701C is refreshed nominally2Hz. These registers are documented read-only float32 values in the RS05 manual section4.1.14; velocity/voltage previously worked on hardware, while this new filtered-Iq read awaits confirmation. Reads are sequential, not simultaneous. Additional CAN/serial work may affect actual loop intervals; no hard real-time sampling claim is made.
+
+Header:
+
+```text
+TRACE_HEADER,t_ms,pos_ms,cycle_at_pos,pos_deg,target_at_pos_deg,error_deg,command_deg,command_rate_deg_s,vel_ms,vel_deg_s,iq_ms,iq_A,vbus_ms,vbus_V
+```
+
+`t_ms` is row output time. Individual `*_ms` timestamps indicate when responses were processed, not hardware-latched simultaneous sample times. `pos_deg` and `vel_deg_s` are in the logical extension-positive coordinate. `target_at_pos_deg` is the target that was already active during the position read; `error_deg` is that target minus measured position. `command_deg`/`command_rate_deg_s` are the subsequently updated command. `cycle_at_pos` identifies the stage at the position read, which can precede the later stage-transition message. `iq_A` retains the motor's reported signed filtered Iq; it is not battery current or a measured peak-current waveform. `vbus_V` is motor-reported bus voltage.
+
+Earlier MOTION rows compared an earlier position read with a newly advanced target. At1rad/s, one50ms command increment alone is about2.86deg, so the v0.12 observed4.9deg difference cannot all be assigned to physical tracking lag. This version compares the prior target to position and logs the new command separately. The once-per-second MOTION summary is renamed target_at_pos_deg accordingly.
+
+Unsupported optional telemetry (read status1) is disabled for that startup and reported as nan with timestamp0, never decoded as a valid zero. Nonfinite optional values are similarly unavailable. Transport failures/timeouts, other read errors and input cancellation retain existing stop/reference classification; motor settings/position/target checks are not relaxed. Sample caches clear on disarm. A missing optional field cannot prevent an otherwise verified control link from being stopped or held.
+
+Procedure: upload, manually reference with StickB as usual, arm holding R1, keep the joystick centered and press controllerY for one cycle. Copy the serial output, including TRACE lines, through cycle completion and R1 release. One cycle is enough for the first check. No new software or library installation is required. Serial remains115200baud. This trace is intended for the current slow rig test, not resolving millisecond launch peaks.
+
+Regression simulation verifies trace output, register values/timestamps, alignment to the already-active target, unsupported-current data staying nan without repeated reads, and controller loss during all three telemetry reads retaining reference only after a confirmed stop. Existing cycle/zero/failsafe checks and ESP32 compilation pass. Hardware validation of v0.13 is pending.

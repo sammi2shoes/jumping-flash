@@ -13,7 +13,7 @@ std::map<uint16_t,uint32_t> regs;
 struct Sent{uint32_t time;unsigned kind,index,bits;};
 std::vector<Sent> sent;
 bool link=true,rejectLimit=false,disconnectOnEnable=false,failStop=false,followTarget=true;
-uint16_t disconnectDuringRead=0;
+uint16_t disconnectDuringRead=0, rejectTelemetryIndex=0;
 uint32_t rxReadyAt=0;
 uint32_t mailboxUntil=0;
 bool mailboxStuck=false;
@@ -39,17 +39,21 @@ int twai_transmit(const twai_message_t* f,int){
  if(type==17&&disconnectDuringRead==index){
   disconnectDuringRead=0;rxReadyAt=fakeTime+10;BP32.disconnectTarget=pad;BP32.disconnectAt=fakeTime+1;
  }
- if(type==17){twai_message_t r={};r.extd=1;r.data_length_code=8;r.identifier=0x1100017e;r.data[0]=index;r.data[1]=index>>8;uint32_t value=index==0x7019?bitsOf(simulatedPosition):regs[index];if(index==0x7016)value=bitsOf(floatOf(value)+targetReadOffset);memcpy(r.data+4,&value,4);rx.push_back(r);}
+ if(type==17){twai_message_t r={};r.extd=1;r.data_length_code=8;r.identifier=0x1100017e;if(index==rejectTelemetryIndex)r.identifier|=0x10000;r.data[0]=index;r.data[1]=index>>8;uint32_t value=index==0x7019?bitsOf(simulatedPosition):regs[index];if(index==0x7016)value=bitsOf(floatOf(value)+targetReadOffset);memcpy(r.data+4,&value,4);rx.push_back(r);}
  return 0;
 }
 void tick(unsigned duration){uint32_t end=fakeTime+duration;while(fakeTime<end)loop();}
 void resetBench() {
  fakeTime=100;interruptAt=0;rx.clear();regs.clear();sent.clear();link=true;rejectLimit=false;disconnectOnEnable=failStop=false;followTarget=true;
- disconnectDuringRead=0;rxReadyAt=0;mailboxUntil=0;mailboxStuck=false;simulatedMode=0;enables=0;simulatedPosition=2.9f;targetReadOffset=.000099f;
+ disconnectDuringRead=rejectTelemetryIndex=0;rxReadyAt=0;mailboxUntil=0;mailboxStuck=false;simulatedMode=0;enables=0;simulatedPosition=2.9f;targetReadOffset=.000099f;
  M5={};BP32={};Serial.output.clear();phase=OFFLINE;pad=nullptr;driverReady=false;
  cancelled=stopRequested=motorFault=false;padReport=retryAt=pollAt=releasedAt=displayAt=0;
  padReports=lastPadLog=modeCount=0;motorMode=255;motorFlags=0;pendingIndex=0;
  pending=readDone=readOK=false;readBits=0;position=target=origin=targetRate=0;
+ targetAtPosition=0;motorIq=motorVelocity=motorVoltage=NAN;
+ positionAt=iqAt=velocityAt=voltageAt=traceAt=0;readStatus=255;
+ iqAvailable=velocityAvailable=voltageAvailable=true;cycleAtPosition=MANUAL;
+ regs[0x701A]=bitsOf(-.75f);regs[0x701B]=bitsOf(-.5f);regs[0x701C]=bitsOf(24.7f);
  clearCycle();cycleButtonDown=true;operationFailure=OP_OK;referenceCaptured=referenceValid=referenceButtonReleased=false;referenceHoldAt=signatureAt=0;
 }
 void initial(Controller& c) {
@@ -113,7 +117,7 @@ int main() {
  initial(c);c.hold=false;tick(250);rejectLimit=true;regs[0x7018]=bitsOf(2.f);c.hold=true;tick(300);
  assert(!referenceValid&&enables==1&&simulatedMode==0);
  // Controller power-off inside an in-flight CAN read must not invalidate zero.
- for(uint16_t index:{uint16_t(0x7019),uint16_t(0x7016),uint16_t(0x7018)}) {
+ for(uint16_t index:{uint16_t(0x7019),uint16_t(0x7016),uint16_t(0x7018),uint16_t(0x701A),uint16_t(0x701B),uint16_t(0x701C)}) {
   initial(c);const float savedZero=origin;disconnectDuringRead=index;tick(800);
   assert(!c.online&&simulatedMode==0&&referenceValid&&origin==savedZero&&enables==1);
   c.online=true;tick(300);assert(phase==WAIT_RELEASE&&enables==1);
@@ -142,5 +146,14 @@ int main() {
  BP32.reports=true;tick(300);assert(phase==WAIT_RELEASE&&cycleStage==MANUAL);
  initial(c);followTarget=false;c.cycleButton=true;tick(7500);
  assert(simulatedMode==0&&cycleStage==MANUAL&&referenceValid&&Serial.output.find("cycle failed to reach/hold endpoint")!=std::string::npos);
- puts("PASS: manual stationary reference required; held R1 retained; neutral active hold; fixed zero across mid-stroke rearm, Bluetooth loss/reconnect, button stop; no recapture; CAN/reset/settings uncertainty blocks enable without changing zero; fixed direction and 0..80 limits; readback/transport guards; one-shot cycle, neutral trigger, manual override, cancellation/no resume, endpoint timeout. Simulated hardware only.");
+ initial(c);c.x=512;tick(55);
+ assert(fabsf(targetAtPosition-position)<.0001f&&fabsf(target-targetAtPosition)>.001f);
+ tick(150);assert(iqAt>0&&velocityAt>0&&voltageAt>0&&motorIq==-.75f&&motorVelocity==-.5f);
+ assert(Serial.output.find("TRACE_HEADER,t_ms,pos_ms")!=std::string::npos&&Serial.output.find("TRACE,")!=std::string::npos);
+ initial(c);rejectTelemetryIndex=0x701A;traceAt=0;tick(300);
+ assert(phase==ACTIVE&&referenceValid&&!iqAvailable&&std::isnan(motorIq)&&iqAt==0);
+ size_t reads=0;for(auto f:sent)if(f.kind==17&&f.index==0x701A)++reads;
+ tick(1000);size_t after=0;for(auto f:sent)if(f.kind==17&&f.index==0x701A)++after;
+ assert(reads==after&&velocityAt>0&&voltageAt>0); // Unsupported optional field isn't retried or logged as zero.
+ puts("PASS: manual stationary reference required; held R1 retained; neutral active hold; fixed zero across mid-stroke rearm, Bluetooth loss/reconnect, button stop; no recapture; CAN/reset/settings uncertainty blocks enable without changing zero; fixed direction and 0..80 limits; readback/transport guards; one-shot cycle, neutral trigger, manual override, cancellation/no resume, endpoint timeout; timestamped telemetry, prior-target alignment, unsupported fields, input loss during telemetry. Simulated hardware only.");
 }
