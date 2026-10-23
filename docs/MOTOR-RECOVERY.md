@@ -1,6 +1,6 @@
 # Single-leg prototype: fixed reference and held enable
 
-Current MotorRecovery v0.10 targets StickC Plus2, MiniCAN GPIO32TX/GPIO33RX, RS05 CAN2.0 firmware0.5.0.14, motor1/host126,1Mbps. Build environment motor-recovery. It supersedes the per-arm relative reference in v0.9 and earlier. The current prototype has no locking mechanism. One leg is attached; the spring can extend the mechanism when torque is disabled. No jump, spinner, second leg or automatic homing is implemented.
+Current MotorRecovery v0.11 targets StickC Plus2, MiniCAN GPIO32TX/GPIO33RX, RS05 CAN2.0 firmware0.5.0.14, motor1/host126,1Mbps. Build environment motor-recovery. It supersedes the per-arm relative reference in v0.9 and earlier. The current prototype has no locking mechanism. One leg is attached; the spring can extend the mechanism when torque is disabled. No jump, spinner, second leg or automatic homing is implemented.
 
 ## Startup and controls
 
@@ -21,7 +21,7 @@ This is not a physical home sensor or a reset-proof reference. Zero is in RAM, n
 
 ## Validation
 
-v0.10 host simulation covers required manual reference, short/unsafe button holds rejected, held R1 and neutral position hold, both80deg endpoints, unchanged zero through mid-stroke disarm/rearm and Bluetooth reconnection, recapture blocked, CAN/settings uncertainty blocking enable without changing zero, readback tolerances and mailbox handling. Hardware validation of this version is pending. Prior v0.6 logs establish observed motion/R1-release disable; the user reported later v0.9 motion, controller-loss stop/reconnect and correct direction with the leg attached. Those reports do not validate this new fixed-reference implementation or holding torque under spring load. Historical version notes below describe earlier behavior and are not current operating instructions.
+v0.11 host simulation covers required manual reference, short/unsafe button holds rejected, held R1 and neutral position hold, both80deg endpoints, unchanged zero through mid-stroke disarm/rearm and Bluetooth reconnection, recapture blocked, CAN/settings uncertainty blocking enable without changing zero, readback tolerances and mailbox handling. Hardware validation of this version is pending. Prior v0.6 logs establish observed motion/R1-release disable; the user reported later v0.9 motion, controller-loss stop/reconnect and correct direction with the leg attached. Those reports do not validate this new fixed-reference implementation or holding torque under spring load. Historical version notes below describe earlier behavior and are not current operating instructions.
 
 ## v0.2: Bluetooth connection classification and diagnostics
 
@@ -74,3 +74,11 @@ At the user's direction, extension now decreases the encoder position (EXTEND_SI
 ## v0.10: fixed manual reference; held R1 retained
 
 The user cancelled the proposed R1 toggle. This release retains held enable and adds the once-per-startup manual reference, fixed limits, settings checks and reference-invalid lockout described above. Per-arm zero capture has been removed.
+
+## v0.11: controller cancellation must not masquerade as CAN failure
+
+The user reported REF INVALID after switching off the controller. A reproducible v0.10 race explains one possible cause: Bluetooth loss inside an outstanding position read or target readback cancels that operation; callers then treated the false return as transport failure and invalidated zero even when STOP was confirmed. No complete hardware log of the failure was supplied, so this is a matched/reproduced software defect, not proof of the only hardware cause.
+
+Operations now distinguish input cancellation from actual transport/readback/state failure. Position reads, target verification, settings checks and arming carry that reason to the disarm handler before STOP transactions overwrite it. Only input cancellation with no fault/reset evidence and a confirmed STOP preserves reference trust. Timeouts, rejected reads, mismatching/nonfinite values, TX errors and unconfirmed STOP remain invalidating. Interrupted CAN operations print Input cancelled read or input cancelled transaction instead of claiming feedback loss. Reference capture, fixed limits and held R1 behavior are unchanged.
+
+Regression simulation reproduces controller power-off during position0x7019, target0x7016 and current-limit0x7018 reads, plus enable-state confirmation. Each retains the identical origin, stops, refuses automatic re-arm, and permits a fresh release/press after return. A cancelled operation followed by unconfirmed STOP still invalidates. Full host checks and ESP32 compilation pass; hardware confirmation is pending.

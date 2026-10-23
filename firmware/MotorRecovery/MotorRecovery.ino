@@ -37,6 +37,19 @@ bool withinReference() {
   return referenceCaptured && referenceValid && travel >= -.002f && travel <= TRAVEL + .002f;
 }
 
+// Preserve the distinction between an operator/input abort and transport failure.
+// Only a confirmed STOP after an input abort may preserve reference trust.
+enum OperationFailure { OP_OK, OP_INPUT_CANCEL, OP_CAN_FAILURE };
+OperationFailure operationFailure = OP_OK;
+bool held();
+bool inputCancelled() {
+  return referenceValid && !motorFault &&
+    (cancelled || stopRequested) && (!held() || stopRequested || M5.BtnA.isPressed());
+}
+void blockedOperation() {
+  operationFailure = inputCancelled() ? OP_INPUT_CANCEL : OP_CAN_FAILURE;
+}
+
 uint32_t bitsOf(float f) { uint32_t bits; memcpy(&bits, &f, 4); return bits; }
 float floatOf(uint32_t bits) { float f; memcpy(&f, &bits, 4); return f; }
 bool inputFresh() {
@@ -90,6 +103,7 @@ void service() {
 }
 
 bool sendPacket(uint8_t type, const uint8_t* bytes = nullptr) {
+  operationFailure = OP_OK;
   twai_message_t f = {};
   f.identifier = (uint32_t(type) << 24) | (uint32_t(HOST) << 8) | MOTOR;
   f.extd = 1; f.ss = 1; f.data_length_code = 8;
@@ -101,41 +115,51 @@ bool sendPacket(uint8_t type, const uint8_t* bytes = nullptr) {
   for (;;) {
     const esp_err_t result = twai_get_status_info(&status);
     if (result != ESP_OK || status.state != TWAI_STATE_RUNNING) {
+      operationFailure = OP_CAN_FAILURE;
       Serial.printf("TX type=%u blocked: driver=%s state=%u\n", type, esp_err_to_name(result), unsigned(status.state));
       return false;
     }
     if (!status.msgs_to_tx) break;
     if (uint32_t(millis() - began) >= 20) {
+      operationFailure = OP_CAN_FAILURE;
       Serial.printf("TX type=%u blocked: mailbox busy; tx_err=%lu rx_err=%lu\n", type,
         (unsigned long)status.tx_error_counter, (unsigned long)status.rx_error_counter);
       return false;
     }
     service();
-    if (type != 4 && (cancelled || motorFault || stopRequested)) return false;
+    if (type != 4 && (cancelled || motorFault || stopRequested)) { blockedOperation(); return false; }
     delay(1);
   }
   service();
-  if (type != 4 && (cancelled || motorFault || stopRequested)) return false;
+  if (type != 4 && (cancelled || motorFault || stopRequested)) { blockedOperation(); return false; }
   const esp_err_t result = twai_transmit(&f, pdMS_TO_TICKS(10));
-  if (result != ESP_OK) Serial.printf("TX type=%u failed: %s\n", type, esp_err_to_name(result));
+  if (result != ESP_OK) { operationFailure = OP_CAN_FAILURE; Serial.printf("TX type=%u failed: %s\n", type, esp_err_to_name(result)); }
   return result == ESP_OK;
 }
 
 bool readValue(uint16_t index, uint32_t& bits) {
+  operationFailure = OP_OK;
   service();
-  if (cancelled || motorFault) return false;
+  if (cancelled || motorFault || stopRequested) { blockedOperation(); return false; }
   pendingIndex = index; pending = true; readDone = readOK = false;
   const uint8_t d[8] = {uint8_t(index), uint8_t(index >> 8), 0, 0, 0, 0, 0, 0};
   if (!sendPacket(17, d)) { pending = false; return false; }
   const uint32_t began = millis();
   while (!readDone && !cancelled && !motorFault && uint32_t(millis() - began) < 150) { service(); delay(1); }
   pending = false;
-  if (!readDone || !readOK || cancelled || motorFault) { Serial.printf("Read failed 0x%04X\n", index); return false; }
+  if (!readDone || !readOK || cancelled || motorFault || stopRequested) {
+    if ((readDone && !readOK) || uint32_t(millis() - began) >= 150 || motorFault || !referenceValid)
+      operationFailure = OP_CAN_FAILURE;
+    else blockedOperation();
+    Serial.printf(operationFailure == OP_INPUT_CANCEL ? "Input cancelled read 0x%04X\n" : "Read failed 0x%04X\n", index);
+    return false;
+  }
   bits = readBits; return true;
 }
 bool writeChecked(uint16_t index, uint32_t bits, bool byteValue = false) {
+  operationFailure = OP_OK;
   service();
-  if (cancelled || motorFault) return false;
+  if (cancelled || motorFault || stopRequested) { blockedOperation(); return false; }
   uint8_t d[8] = {uint8_t(index), uint8_t(index >> 8), 0, 0, 0, 0, 0, 0};
   memcpy(d + 4, &bits, 4);
   uint32_t actual;
@@ -150,14 +174,18 @@ bool writeChecked(uint16_t index, uint32_t bits, bool byteValue = false) {
     matches = std::isfinite(wanted) && std::isfinite(returned) &&
       fabsf(returned - wanted) <= 0.0002f;
   }
-  if (!matches) Serial.printf("VERIFY mismatch index=0x%04X wanted=%08lX got=%08lX\n",
-    index, (unsigned long)bits, (unsigned long)actual);
+  if (!matches) {
+    operationFailure = OP_CAN_FAILURE;
+    Serial.printf("VERIFY mismatch index=0x%04X wanted=%08lX got=%08lX\n", index, (unsigned long)bits, (unsigned long)actual);
+  }
   return matches;
 }
 bool readPosition() {
   uint32_t bits;
   if (!readValue(0x7019, bits)) return false;
-  position = floatOf(bits); return std::isfinite(position);
+  position = floatOf(bits);
+  if (!std::isfinite(position)) { operationFailure = OP_CAN_FAILURE; return false; }
+  return true;
 }
 bool commandState(uint8_t type, uint8_t expected) {
   service();
@@ -165,10 +193,12 @@ bool commandState(uint8_t type, uint8_t expected) {
   if (!sendPacket(type)) return false;
   while (modeCount == before && uint32_t(millis() - began) < 150) {
     service();
-    if (type != 4 && (cancelled || motorFault)) return false;
+    if (type != 4 && (cancelled || motorFault || stopRequested)) { blockedOperation(); return false; }
     delay(1);
   }
-  return modeCount != before && motorMode == expected;
+  const bool confirmed = modeCount != before && motorMode == expected;
+  if (!confirmed) operationFailure = OP_CAN_FAILURE;
+  return confirmed;
 }
 bool stopMotor() {
   for (int i = 0; i < 2; ++i) if (commandState(4, 0)) return true;
@@ -190,6 +220,11 @@ void loseControl(const char* reason, bool uncertain = false) {
   // No CAN traffic during this interval: allow the motor watchdog to expire
   // even if only the feedback path was lost. Recovery starts with STOP.
   retryAt = millis() + RETRY_MS;
+}
+
+void loseFailedOperation(const char* reason) {
+  const bool inputAbort = operationFailure == OP_INPUT_CANCEL && referenceValid && !motorFault;
+  loseControl(inputAbort ? "input cancelled transaction; stopping without changing zero" : reason, !inputAbort);
 }
 
 bool recoverDriver() {
@@ -246,7 +281,8 @@ bool settingsIntact() {
   const uint32_t expected[] = {5, bitsOf(CURRENT), bitsOf(SPEED), WATCHDOG};
   for (int i = 0; i < 4; ++i) {
     if (!readValue(indices[i], value) || value != expected[i]) {
-      if (cancelled && !motorFault) return false;
+      if (operationFailure == OP_INPUT_CANCEL && !motorFault && referenceValid) return false;
+      operationFailure = OP_CAN_FAILURE;
       invalidateReference();
       Serial.printf("Pre-arm settings changed/unreadable: 0x%04X. No enable.\n", indices[i]); return false;
     }
@@ -255,6 +291,7 @@ bool settingsIntact() {
 }
 
 bool armMotor() {
+  operationFailure = OP_OK;
   phase = ARMING; cancelled = false;
   if (!held() || !centered() || motorFault || !referenceValid || !settingsIntact() || !readPosition() || !withinReference()) return false;
   target = position;
@@ -281,7 +318,7 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
-  Serial.printf("RS05 position hold v0.10 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  Serial.printf("RS05 position hold v0.11 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
   if (driverReady) Serial.println(stopMotor() ? "Startup disabled confirmed." : "Startup STOP unconfirmed; use motor power cutoff if needed.");
   Serial.println("Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.");
   Serial.println("Extension direction: decreasing encoder position; right stick extends, left retracts.");
@@ -300,12 +337,12 @@ void loop() {
     } else if (phase == NEED_REFERENCE || phase == WAIT_RELEASE || phase == READY) {
       if (uint32_t(now - pollAt) >= 100) {
         pollAt = now;
-        if (!readPosition()) { loseControl("CAN feedback lost while disabled", true); return; }
+        if (!readPosition()) { loseFailedOperation("CAN feedback lost while disabled"); return; }
       }
       if (referenceCaptured && !referenceValid) phase = NEED_REFERENCE;
       if (referenceValid && uint32_t(now - signatureAt) >= 500) {
         signatureAt = now;
-        if (!settingsIntact()) { loseControl("disabled motor settings changed/unreadable", true); return; }
+        if (!settingsIntact()) { loseFailedOperation("disabled motor settings changed/unreadable"); return; }
       }
       if (phase == NEED_REFERENCE) {
         if (!M5.BtnB.isPressed()) { referenceButtonReleased = true; referenceHoldAt = 0; }
@@ -324,17 +361,17 @@ void loop() {
         } else releasedAt = 0;
       } else if (held()) {
         if (!centered()) { phase = WAIT_RELEASE; releasedAt = 0; Serial.println("Center stick and release RB/R1 before enabling."); }
-        else if (!armMotor()) loseControl("arming interrupted or unverified", !cancelled || motorFault || !referenceValid);
+        else if (!armMotor()) loseFailedOperation("arming interrupted or unverified");
       }
     } else if (phase == ACTIVE && uint32_t(now - pollAt) >= 50) {
       float dt = float(uint32_t(now - pollAt)) / 1000.0f;
       if (dt > .05f) dt = .05f;
       pollAt = now;
-      if (!readPosition()) { loseControl("CAN feedback lost", true); return; }
+      if (!readPosition()) { loseFailedOperation("CAN feedback lost"); return; }
       if (!referenceValid) { loseControl("reference invalidated", true); return; }
       if (uint32_t(now - signatureAt) >= 500) {
         signatureAt = now;
-        if (!settingsIntact()) { loseControl("active motor settings changed/unreadable", !cancelled || motorFault); return; }
+        if (!settingsIntact()) { loseFailedOperation("active motor settings changed/unreadable"); return; }
       }
       const float measuredTravel = EXTEND_SIGN * (position - origin);
       if (measuredTravel < -.035f || measuredTravel > TRAVEL + .035f) { loseControl("measured travel exceeded fixed reference limits", true); return; }
@@ -348,7 +385,7 @@ void loop() {
       if (travel >= TRAVEL) { travel = TRAVEL; targetRate = 0; }
       if (travel <= 0) { travel = 0; targetRate = 0; }
       target = origin + EXTEND_SIGN * travel;
-      if (!writeChecked(0x7016, bitsOf(target))) loseControl("CAN target acknowledgement lost", true);
+      if (!writeChecked(0x7016, bitsOf(target))) loseFailedOperation("CAN target acknowledgement lost");
     }
   }
   if (uint32_t(millis() - lastPadLog) >= 1000) {

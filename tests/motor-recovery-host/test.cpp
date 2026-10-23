@@ -12,7 +12,9 @@ std::deque<twai_message_t> rx;
 std::map<uint16_t,uint32_t> regs;
 struct Sent{uint32_t time;unsigned kind,index,bits;};
 std::vector<Sent> sent;
-bool link=true,rejectLimit=false;
+bool link=true,rejectLimit=false,disconnectOnEnable=false,failStop=false;
+uint16_t disconnectDuringRead=0;
+uint32_t rxReadyAt=0;
 uint32_t mailboxUntil=0;
 bool mailboxStuck=false;
 int twai_get_status_info(twai_status_info_t* s){*s={};s->msgs_to_tx=mailboxStuck || fakeTime<mailboxUntil;return 0;}
@@ -21,30 +23,34 @@ float simulatedPosition=2.9f;
 float targetReadOffset=0.000099f;
 #include "../../firmware/MotorRecovery/MotorRecovery.ino"
 void feedback(){twai_message_t r={};r.identifier=0x0200017e|(uint32_t(simulatedMode)<<22);r.extd=1;r.data_length_code=8;rx.push_back(r);}
-int twai_receive(twai_message_t* f,int){if(rx.empty())return -1;*f=rx.front();rx.pop_front();return 0;}
+int twai_receive(twai_message_t* f,int){if(rx.empty()||fakeTime<rxReadyAt)return -1;*f=rx.front();rx.pop_front();return 0;}
 int twai_transmit(const twai_message_t* f,int){
  if(mailboxStuck || fakeTime<mailboxUntil)return -1;
  mailboxUntil=fakeTime+2;
  unsigned type=f->identifier>>24,index=f->data[0]|(unsigned(f->data[1])<<8),bits=0;memcpy(&bits,f->data+4,4);
  assert(type==3||type==4||type==17||type==18||type==24);
  assert(f->extd&&f->ss&&(f->identifier&0xffff)==0x7e01);
- sent.push_back({fakeTime,type,index,bits});if(!link)return 0;
+ sent.push_back({fakeTime,type,index,bits});if(!link||(type==4&&failStop))return 0;
+ if(type==3&&disconnectOnEnable){disconnectOnEnable=false;rxReadyAt=fakeTime+10;BP32.disconnectTarget=pad;BP32.disconnectAt=fakeTime+1;}
  if(type==4){simulatedMode=0;feedback();}
  if(type==24){assert(f->data[6]==0);feedback();}
  if(type==3){assert(held()&&centered()&&phase==ARMING&&regs[0x7028]==20000&&regs[0x7018]==bitsOf(1.f)&&regs[0x7005]==5);assert(fabsf(floatOf(regs[0x7016])-simulatedPosition)<.0001f);simulatedMode=2;++enables;feedback();}
  if(type==18){assert(index==0x7028||index==0x7018||index==0x7005||index==0x7017||index==0x7016);if(!(rejectLimit&&index==0x7018))regs[index]=bits;if(index==0x7016&&simulatedMode==2)simulatedPosition=floatOf(bits);feedback();}
+ if(type==17&&disconnectDuringRead==index){
+  disconnectDuringRead=0;rxReadyAt=fakeTime+10;BP32.disconnectTarget=pad;BP32.disconnectAt=fakeTime+1;
+ }
  if(type==17){twai_message_t r={};r.extd=1;r.data_length_code=8;r.identifier=0x1100017e;r.data[0]=index;r.data[1]=index>>8;uint32_t value=index==0x7019?bitsOf(simulatedPosition):regs[index];if(index==0x7016)value=bitsOf(floatOf(value)+targetReadOffset);memcpy(r.data+4,&value,4);rx.push_back(r);}
  return 0;
 }
 void tick(unsigned duration){uint32_t end=fakeTime+duration;while(fakeTime<end)loop();}
 void resetBench() {
- fakeTime=100;interruptAt=0;rx.clear();regs.clear();sent.clear();link=true;rejectLimit=false;
- mailboxUntil=0;mailboxStuck=false;simulatedMode=0;enables=0;simulatedPosition=2.9f;targetReadOffset=.000099f;
+ fakeTime=100;interruptAt=0;rx.clear();regs.clear();sent.clear();link=true;rejectLimit=false;disconnectOnEnable=failStop=false;
+ disconnectDuringRead=0;rxReadyAt=0;mailboxUntil=0;mailboxStuck=false;simulatedMode=0;enables=0;simulatedPosition=2.9f;targetReadOffset=.000099f;
  M5={};BP32={};Serial.output.clear();phase=OFFLINE;pad=nullptr;driverReady=false;
  cancelled=stopRequested=motorFault=false;padReport=retryAt=pollAt=releasedAt=displayAt=0;
  padReports=lastPadLog=modeCount=0;motorMode=255;motorFlags=0;pendingIndex=0;
  pending=readDone=readOK=false;readBits=0;position=target=origin=targetRate=0;
- referenceCaptured=referenceValid=referenceButtonReleased=false;referenceHoldAt=signatureAt=0;
+ operationFailure=OP_OK;referenceCaptured=referenceValid=referenceButtonReleased=false;referenceHoldAt=signatureAt=0;
 }
 void initial(Controller& c) {
  resetBench();setup();c={};c.gamepad=false;connected(&c);
@@ -106,5 +112,16 @@ int main() {
  // Changed current limit/readback cannot be silently rewritten then enabled.
  initial(c);c.hold=false;tick(250);rejectLimit=true;regs[0x7018]=bitsOf(2.f);c.hold=true;tick(300);
  assert(!referenceValid&&enables==1&&simulatedMode==0);
+ // Controller power-off inside an in-flight CAN read must not invalidate zero.
+ for(uint16_t index:{uint16_t(0x7019),uint16_t(0x7016),uint16_t(0x7018)}) {
+  initial(c);const float savedZero=origin;disconnectDuringRead=index;tick(800);
+  assert(!c.online&&simulatedMode==0&&referenceValid&&origin==savedZero&&enables==1);
+  c.online=true;tick(300);assert(phase==WAIT_RELEASE&&enables==1);
+  c.hold=false;tick(250);c.hold=true;tick(100);assert(phase==ACTIVE&&enables==2&&origin==savedZero);
+ }
+ initial(c);const float zero4=origin;c.hold=false;tick(250);disconnectOnEnable=true;c.hold=true;tick(300);
+ assert(!c.online&&simulatedMode==0&&referenceValid&&origin==zero4&&enables==2);
+ initial(c);const float zero5=origin;disconnectDuringRead=0x7019;failStop=true;tick(800);
+ assert(!c.online&&!referenceValid&&origin==zero5); // Cancellation cannot excuse unconfirmed STOP.
  puts("PASS: manual stationary reference required; held R1 retained; neutral active hold; fixed zero across mid-stroke rearm, Bluetooth loss/reconnect, button stop; no recapture; CAN/reset/settings uncertainty blocks enable without changing zero; fixed direction and 0..80 limits; readback/transport guards. Simulated hardware only.");
 }
