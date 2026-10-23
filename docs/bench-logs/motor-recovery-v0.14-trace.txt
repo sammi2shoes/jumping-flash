@@ -1,0 +1,120 @@
+RS05 position hold v0.14 CAN=ESP_OK. No enable on boot.
+Startup disabled confirmed.
+Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.
+Extension direction: decreasing encoder position; right stick extends, left retracts.
+TRACE_HEADER,t_ms,pos_ms,cycle_at_pos,pos_deg,target_at_pos_deg,error_deg,command_deg,command_rate_deg_s,vel_ms,vel_deg_s,iq_ms,iq_A,vbus_ms,vbus_V
+Controller Y: one retract/pause/extend cycle while R1 held and stick centered; stick movement cancels cycle.
+RB/R1=hold enable; left X=motion; neutral=hold position. Button A on Stick or serial x=stop. No spinner output.
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+Failed to find gamepad profile for device. Fallback: using Android profile.
+BT connected: waiting for gamepad reports. Release RB/R1.
+CAN ready / disabled. Reference required: position fully retracted; release then hold Stick B for 2 seconds.
+PAD link=1 gamepad=1 fresh=1 reports=59 age_ms=1 leftX=-4 RB_R1=0 phase=6
+PAD link=1 gamepad=1 fresh=1 reports=177 age_ms=9 leftX=-4 RB_R1=0 phase=6
+PAD link=1 gamepad=1 fresh=1 reports=294 age_ms=5 leftX=-4 RB_R1=0 phase=6
+PAD link=1 gamepad=1 fresh=1 reports=411 age_ms=1 leftX=-4 RB_R1=0 phase=6
+PAD link=1 gamepad=1 fresh=1 reports=528 age_ms=4 leftX=-4 RB_R1=0 phase=6
+PAD link=1 gamepad=1 fresh=1 reports=647 age_ms=5 leftX=-4 RB_R1=0 phase=6
+PAD link=1 gamepad=1 fresh=1 reports=764 age_ms=1 leftX=-4 RB_R1=0 phase=6
+ZERO CAPTURED encoder=6.933346 rad. Fixed 0..80 deg limits; hold R1 for active position hold.
+Ready. Press/hold R1 with left stick centered for active position hold.
+PAD link=1 gamepad=1 fresh=1 reports=880 age_ms=11 leftX=-4 RB_R1=0 phase=3
+PAD link=1 gamepad=1 fresh=1 reports=997 age_ms=19 leftX=-4 RB_R1=0 phase=3
+PAD link=1 gamepad=1 fresh=1 reports=1119 age_ms=1 leftX=-4 RB_R1=0 phase=3
+PAD link=1 gamepad=1 fresh=1 reports=1235 age_ms=4 leftX=-4 RB_R1=0 phase=3
+PAD link=1 gamepad=1 fresh=1 reports=1352 age_ms=20 leftX=-4 RB_R1=0 phase=3
+ARMED HOLD: keep R1 held; neutral holds; release R1 to DISABLE. Fixed travel 0..80 deg at 1.0 rad/s, 1 A.
+TRACE,33667,33650,MANUAL,79.085,79.082,-0.003,79.082,0.000,33665,-0.465,33663,-0.0061,33667,24.141
+TRACE,33807,33800,MANUAL,79.082,79.082,0.000,79.082,0.000,33807,-1.668,33805,-0.0076,33667,24.141
+TRACE,33907,33900,MANUAL,79.087,79.082,-0.006,79.082,0.000,33907,0.535,33905,-0.0272,33667,24.141
+TRACE,34007,34000,MANUAL,79.085,79.082,-0.003,79.082,0.000,34007,0.782,34005,-0.0206,33667,24.141
+MOTION measured_deg=79.08 target_at_pos_deg=79.08 rate_deg_s=0.00 limit=0..80 cycle=MANUAL
+PAD link=1 gamepad=1 fresh=1 reports=1472 age_ms=0 leftX=-4 RB_R1=1 phase=5
+TRACE,34107,34100,MANUAL,79.087,79.082,-0.006,79.082,0.000,34107,5.003,34105,-0.0133,33667,24.141
+TRACE,34209,34200,MANUAL,79.073,79.082,0.008,79.082,0.000,34207,-1.010,34205,0.0029,34209,24.176
+TRACE,34307,34300,MANUAL,79.085,79.082,-0.003,79.082,0.000,34307,-0.742,34305,-0.0047,34209,24.176
+CYCLE RETRACT: one cycle at 1 A / 1 rad/s. Keep R1 held; stick overrides.
+TRACE,34407,34400,MANUAL,79.082,79.082,0.000,78.365,-14.324,34407,-6.914,34405,0.0258,34209,24.176
+TRACE,34507,34500,RETRACT,77.247,76.933,-0.314,74.785,-42.972,34507,-24.833,34505,0.2558,34209,24.176
+TRACE,34607,34600,RETRACT,72.910,71.920,-0.990,69.055,-57.296,34607,-38.769,34605,0.3524,34209,24.176
+TRACE,34707,34700,RETRACT,67.917,66.190,-1.727,63.325,-57.296,34707,-60.559,34705,0.2980,34209,24.176
+TRACE,34809,34800,RETRACT,62.337,60.461,-1.877,57.596,-57.296,34807,-52.901,34805,0.2515,34809,24.141
+TRACE,34907,34900,RETRACT,56.638,54.731,-1.908,51.866,-57.296,34907,-74.650,34905,0.2091,34809,24.141
+TRACE,35007,35000,RETRACT,50.795,49.001,-1.794,46.137,-57.296,35007,-50.411,35005,0.5745,34809,24.141
+MOTION measured_deg=50.80 target_at_pos_deg=49.00 rate_deg_s=-57.30 limit=0..80 cycle=RETRACT
+PAD link=1 gamepad=1 fresh=1 reports=1590 age_ms=4 leftX=-4 RB_R1=1 phase=5
+TRACE,35107,35100,RETRACT,45.215,43.272,-1.944,40.407,-57.296,35107,-51.272,35105,0.4919,34809,24.141
+TRACE,35207,35200,RETRACT,39.712,37.542,-2.170,34.677,-57.296,35207,-58.281,35205,0.3222,34809,24.141
+TRACE,35307,35300,RETRACT,33.994,31.813,-2.181,28.948,-57.296,35307,-66.017,35305,0.2307,34809,24.141
+TRACE,35409,35400,RETRACT,28.051,26.083,-1.968,23.218,-57.296,35407,-55.871,35405,0.3762,35409,24.141
+TRACE,35507,35500,RETRACT,22.381,20.353,-2.028,17.489,-57.296,35507,-53.762,35505,0.5211,35409,24.141
+TRACE,35607,35600,RETRACT,16.696,14.624,-2.073,11.759,-57.296,35607,-60.732,35605,0.2941,35409,24.141
+TRACE,35707,35700,RETRACT,11.108,8.894,-2.214,6.029,-57.296,35707,-55.789,35705,0.2321,35409,24.141
+TRACE,35807,35800,RETRACT,5.245,3.165,-2.081,1.016,-42.972,35807,-68.185,35805,0.2311,35409,24.141
+CYCLE PAUSE: holding retracted position for 300 ms.
+TRACE,35907,35900,RETRACT,0.077,-0.000,-0.077,-0.000,0.000,35907,-2.055,35905,0.2616,35409,24.141
+TRACE,36009,36000,PAUSE,0.082,-0.000,-0.082,-0.000,0.000,36007,0.292,36005,0.1886,36009,24.176
+MOTION measured_deg=0.08 target_at_pos_deg=-0.00 rate_deg_s=0.00 limit=0..80 cycle=PAUSE
+PAD link=1 gamepad=1 fresh=1 reports=1708 age_ms=5 leftX=-4 RB_R1=1 phase=5
+TRACE,36107,36100,PAUSE,0.071,-0.000,-0.071,-0.000,0.000,36107,-5.066,36105,0.2272,36009,24.176
+TRACE,36207,36200,PAUSE,0.043,-0.000,-0.043,-0.000,0.000,36207,-2.242,36205,0.2824,36009,24.176
+CYCLE EXTEND: moving toward fixed 80-degree endpoint.
+TRACE,36307,36300,EXTEND,0.026,-0.000,-0.026,0.716,14.324,36307,-1.410,36305,0.2783,36009,24.176
+TRACE,36407,36400,EXTEND,1.704,2.149,0.445,4.297,42.972,36407,26.445,36405,-0.1084,36009,24.176
+TRACE,36507,36500,EXTEND,6.223,7.162,0.939,10.027,57.296,36507,37.145,36505,-0.0430,36009,24.176
+TRACE,36609,36600,EXTEND,11.593,12.892,1.299,15.756,57.296,36607,39.067,36605,0.1162,36609,24.176
+TRACE,36707,36700,EXTEND,16.770,18.621,1.851,21.486,57.296,36707,57.716,36705,0.1762,36609,24.176
+TRACE,36807,36800,EXTEND,22.616,24.351,1.735,27.216,57.296,36807,73.628,36805,0.2214,36609,24.176
+TRACE,36907,36900,EXTEND,28.363,30.080,1.717,32.945,57.296,36907,40.377,36905,-0.1054,36609,24.176
+TRACE,37007,37000,EXTEND,33.807,35.810,2.003,38.675,57.296,37007,54.516,37005,-0.0620,36609,24.176
+MOTION measured_deg=33.81 target_at_pos_deg=35.81 rate_deg_s=57.30 limit=0..80 cycle=EXTEND
+PAD link=1 gamepad=1 fresh=1 reports=1828 age_ms=1 leftX=-4 RB_R1=1 phase=5
+TRACE,37107,37100,EXTEND,39.593,41.540,1.946,44.404,57.296,37107,46.097,37105,0.1060,36609,24.176
+TRACE,37209,37200,EXTEND,45.057,47.269,2.212,50.134,57.296,37207,78.245,37205,0.2110,37209,24.141
+TRACE,37307,37300,EXTEND,51.107,52.999,1.892,55.864,57.296,37307,44.000,37305,0.0736,37209,24.141
+TRACE,37407,37400,EXTEND,56.619,58.728,2.110,61.593,57.296,37407,50.776,37405,-0.1520,37209,24.141
+TRACE,37507,37500,EXTEND,62.224,64.458,2.234,67.323,57.296,37507,56.082,37505,0.0287,37209,24.141
+TRACE,37607,37600,EXTEND,67.781,70.188,2.407,73.052,57.296,37607,45.455,37605,0.0331,37209,24.141
+TRACE,37707,37700,EXTEND,73.366,75.917,2.551,78.335,48.366,37707,81.232,37705,0.1037,37209,24.141
+TRACE,37809,37800,EXTEND,79.232,80.000,0.768,80.000,0.000,37807,18.864,37805,-0.0678,37809,24.176
+CYCLE COMPLETE: holding extended. Release/press controller Y for a new cycle; R1 release disables.
+TRACE,37907,37900,DONE/HOLD,79.810,80.000,0.190,80.000,0.000,37907,5.242,37905,-0.2171,37809,24.176
+TRACE,38007,38000,DONE/HOLD,79.941,80.000,0.059,80.000,0.000,38007,-4.599,38005,-0.2463,37809,24.176
+MOTION measured_deg=79.94 target_at_pos_deg=80.00 rate_deg_s=0.00 limit=0..80 cycle=DONE/HOLD
+PAD link=1 gamepad=1 fresh=1 reports=1946 age_ms=10 leftX=-4 RB_R1=1 phase=5
+TRACE,38107,38100,DONE/HOLD,79.989,80.000,0.011,80.000,0.000,38107,-1.481,38105,-0.2067,37809,24.176
+TRACE,38207,38200,DONE/HOLD,79.989,80.000,0.011,80.000,0.000,38207,-5.896,38205,-0.2071,37809,24.176
+TRACE,38307,38300,DONE/HOLD,80.014,80.000,-0.015,80.000,0.000,38307,-1.174,38305,-0.1930,37809,24.176
+TRACE,38409,38400,DONE/HOLD,80.000,80.000,-0.000,80.000,0.000,38407,0.045,38405,-0.1872,38409,24.176
+TRACE,38507,38500,DONE/HOLD,80.000,80.000,-0.000,80.000,0.000,38507,2.846,38505,-0.1902,38409,24.176
+TRACE,38607,38600,DONE/HOLD,80.000,80.000,-0.000,80.000,0.000,38607,-2.577,38605,-0.1797,38409,24.176
+TRACE,38707,38700,DONE/HOLD,80.000,80.000,-0.000,80.000,0.000,38707,1.256,38705,-0.1732,38409,24.176
+DISARMED: R1 released, stop, controller loss/stale data, or motor state change; old target discarded.
+Disabled confirmed.
+Ready. Press/hold R1 with left stick centered for active position hold.
+PAD link=1 gamepad=1 fresh=1 reports=2064 age_ms=5 leftX=-4 RB_R1=0 phase=3
+PAD link=1 gamepad=1 fresh=1 reports=2182 age_ms=1 leftX=-4 RB_R1=0 phase=3
+PAD link=1 gamepad=1 fresh=1 reports=2299 age_ms=4 leftX=-4 RB_R1=0 phase=3
+PAD link=1 gamepad=1 fresh=1 reports=2419 age_ms=5 leftX=-4 RB_R1=0 phase=3
+PAD link=1 gamepad=1 fresh=1 reports=2540 age_ms=1 leftX=-4 RB_R1=0 phase=3
+PAD link=1 gamepad=1 fresh=1 reports=2655 age_ms=4 leftX=-4 RB_R1=0 phase=3

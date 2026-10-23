@@ -1,6 +1,7 @@
 .pio/
 .vscode/
 *.csv
+!docs/bench-logs/motor-recovery-v0.14-trace.csv
 __pycache__/
 *.py[cod]
 .venv/

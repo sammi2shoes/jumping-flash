@@ -22,9 +22,11 @@ The user reported REF INVALID on controller power-off in v0.10. v0.11 fixes a si
 
 v0.12 adds a fresh controllerY-triggered one-motor retract/pause/extend/hold sequence at unchanged test limits. Endpoint arrival and continuous300ms retracted settling are required; a6second stage timeout stops, joystick overrides, and loss/stop cancels without resume. Host simulation and compilation pass. The user's v0.12 log confirms two completed cycles, retracted pause near0.09deg, extended hold at79.95–80.00deg, manual joystick override and R1-release disable during a later retraction. Moving samples show up to4.89deg target/measurement difference; higher-speed tracking and loaded launch performance are not established. See bench-logs/motor-recovery-v0.12-cycle-excerpt.txt.
 
-v0.13 adds nominal10Hz timestamped filtered-Iq/velocity/tracking traces and nominal2Hz bus voltage. It fixes log alignment by comparing position with the command active at that read rather than the next command. Filtered-Iq hardware support and telemetry behavior await the next log. No motion setting or control change was made.
+v0.13 adds nominal10Hz timestamped filtered-Iq/velocity/tracking traces and nominal2Hz bus voltage. It fixes log alignment by comparing position with the command active at that read rather than the next command. The subsequent v0.14 log confirms filtered-Iq/velocity/voltage reads return finite data on this rig. No motion setting or control change was made.
 
-The v0.13 hardware attempt stopped during arming on a0.000297rad position-target readback difference, before a trace was supplied. v0.14 allows at most0.0005rad for that register only, retains exact safety-setting checks, and clarifies the reference-invalid restart message. The exact observed hex pair and full regression suite pass; new hardware validation is pending.
+The v0.13 hardware attempt stopped during arming on a0.000297rad position-target readback difference, before a trace was supplied. v0.14 allows at most0.0005rad for that register only, retains exact safety-setting checks, and clarifies the reference-invalid restart message. The exact observed hex pair and full regression suite pass. The subsequent v0.14 run completed without a readback/reference error.
+
+The v0.14 trace has51 samples at median100ms intervals: max sampled tracking error2.551deg; max sampled filtered-Iq magnitude0.5745A; extended-hold mean magnitude0.200A; voltage24.141–24.176V. One cycle completed and R1 release confirmed disable/READY. Sampled current does not show sustained saturation, but does not bound brief peaks. See MOTOR-RECOVERY.md and bench-plots/motor-recovery-v0.14.png.
 
 ## Available and planned hardware
 

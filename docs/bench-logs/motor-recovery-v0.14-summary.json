@@ -1,0 +1,51 @@
+{
+  "firmware": "v0.14",
+  "samples": 51,
+  "median_position_interval_ms": 100.0,
+  "max_sampled_abs_error_deg": 2.551,
+  "max_sampled_abs_filtered_iq_A": 0.5745,
+  "sampled_bus_voltage_V": [
+    24.141,
+    24.176
+  ],
+  "stages": {
+    "MANUAL": {
+      "samples": 8,
+      "max_sampled_abs_error_deg": 0.008,
+      "max_sampled_abs_filtered_iq_A": 0.0272,
+      "mean_sampled_abs_filtered_iq_A": 0.013525
+    },
+    "RETRACT": {
+      "samples": 15,
+      "max_sampled_abs_error_deg": 2.214,
+      "max_sampled_abs_filtered_iq_A": 0.5745,
+      "mean_sampled_abs_filtered_iq_A": 0.32682,
+      "median_steady_finite_difference_velocity_deg_s": -56.69999999999998
+    },
+    "PAUSE": {
+      "samples": 3,
+      "max_sampled_abs_error_deg": 0.082,
+      "max_sampled_abs_filtered_iq_A": 0.2824,
+      "mean_sampled_abs_filtered_iq_A": 0.23273333333333332
+    },
+    "EXTEND": {
+      "samples": 16,
+      "max_sampled_abs_error_deg": 2.551,
+      "max_sampled_abs_filtered_iq_A": 0.2783,
+      "mean_sampled_abs_filtered_iq_A": 0.117925,
+      "median_steady_finite_difference_velocity_deg_s": 55.57000000000009
+    },
+    "DONE/HOLD": {
+      "samples": 9,
+      "max_sampled_abs_error_deg": 0.19,
+      "max_sampled_abs_filtered_iq_A": 0.2463,
+      "mean_sampled_abs_filtered_iq_A": 0.20005555555555554
+    }
+  },
+  "limitations": [
+    "No synchronous hardware timestamps; each register has a response-processing timestamp.",
+    "Filtered current sampled near 10 Hz cannot establish instantaneous peak current or lack of all current limiting.",
+    "The sampled position error is not a peak-error bound.",
+    "Velocity finite differences below use position timestamps; reported motor velocity is noisy at rest."
+  ]
+}
