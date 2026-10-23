@@ -14,6 +14,7 @@ struct Sent{uint32_t time;unsigned kind,index,bits;};
 std::vector<Sent> sent;
 bool link=true,rejectLimit=false,disconnectOnEnable=false,failStop=false,followTarget=true;
 uint16_t disconnectDuringRead=0, rejectTelemetryIndex=0;
+bool launchReadOnlyDisconnect=false,rejectLaunch=false;
 uint32_t rxReadyAt=0;
 uint32_t mailboxUntil=0;
 bool mailboxStuck=false;
@@ -35,8 +36,8 @@ int twai_transmit(const twai_message_t* f,int){
  if(type==4){simulatedMode=0;feedback();}
  if(type==24){assert(f->data[6]==0);feedback();}
  if(type==3){assert(held()&&centered()&&phase==ARMING&&regs[0x7028]==20000&&regs[0x7018]==bitsOf(1.f)&&regs[0x7005]==5);assert(fabsf(floatOf(regs[0x7016])-simulatedPosition)<.0001f);simulatedMode=2;++enables;feedback();}
- if(type==18){assert(index==0x7028||index==0x7018||index==0x7005||index==0x7017||index==0x7016);if(!(rejectLimit&&index==0x7018))regs[index]=bits;if(index==0x7016&&simulatedMode==2&&followTarget)simulatedPosition=floatOf(bits);feedback();}
- if(type==17&&disconnectDuringRead==index){
+ if(type==18){assert(index==0x7028||index==0x7018||index==0x7005||index==0x7017||index==0x7016);if(!(rejectLimit&&index==0x7018)&&!(rejectLaunch&&index==0x7018&&bits==bitsOf(LAUNCH_CURRENT)))regs[index]=bits;if(index==0x7016&&simulatedMode==2&&followTarget)simulatedPosition=floatOf(bits);feedback();}
+ if(type==17&&disconnectDuringRead==index&&(!launchReadOnlyDisconnect||regs[0x7018]==bitsOf(LAUNCH_CURRENT))){
   disconnectDuringRead=0;rxReadyAt=fakeTime+10;BP32.disconnectTarget=pad;BP32.disconnectAt=fakeTime+1;
  }
  if(type==17){twai_message_t r={};r.extd=1;r.data_length_code=8;r.identifier=0x1100017e;if(index==rejectTelemetryIndex)r.identifier|=0x10000;r.data[0]=index;r.data[1]=index>>8;uint32_t value=index==0x7019?bitsOf(simulatedPosition):regs[index];if(index==0x7016)value=bitsOf(floatOf(value)+targetReadOffset);memcpy(r.data+4,&value,4);rx.push_back(r);}
@@ -45,7 +46,7 @@ int twai_transmit(const twai_message_t* f,int){
 void tick(unsigned duration){uint32_t end=fakeTime+duration;while(fakeTime<end)loop();}
 void resetBench() {
  fakeTime=100;interruptAt=0;rx.clear();regs.clear();sent.clear();link=true;rejectLimit=false;disconnectOnEnable=failStop=false;followTarget=true;
- disconnectDuringRead=rejectTelemetryIndex=0;rxReadyAt=0;mailboxUntil=0;mailboxStuck=false;simulatedMode=0;enables=0;simulatedPosition=2.9f;targetReadOffset=.00029706955f;
+ disconnectDuringRead=rejectTelemetryIndex=0;launchReadOnlyDisconnect=rejectLaunch=false;rxReadyAt=0;mailboxUntil=0;mailboxStuck=false;simulatedMode=0;enables=0;simulatedPosition=2.9f;targetReadOffset=.00029706955f;
  M5={};BP32={};Serial.output.clear();phase=OFFLINE;pad=nullptr;driverReady=false;
  cancelled=stopRequested=motorFault=false;padReport=retryAt=pollAt=releasedAt=displayAt=0;
  padReports=lastPadLog=modeCount=0;motorMode=255;motorFlags=0;pendingIndex=0;
@@ -54,7 +55,7 @@ void resetBench() {
  positionAt=iqAt=velocityAt=voltageAt=traceAt=0;readStatus=255;
  iqAvailable=velocityAvailable=voltageAvailable=true;cycleAtPosition=MANUAL;
  regs[0x701A]=bitsOf(-.75f);regs[0x701B]=bitsOf(-.5f);regs[0x701C]=bitsOf(24.7f);
- clearCycle();cycleButtonDown=true;operationFailure=OP_OK;referenceCaptured=referenceValid=referenceButtonReleased=false;referenceHoldAt=signatureAt=0;
+ clearCycle();cycleButtonDown=fastButtonDown=true;expectedCurrent=CURRENT;expectedSpeed=SPEED;profilePending=false;lastControlMs=burstAt=0;operationFailure=OP_OK;referenceCaptured=referenceValid=referenceButtonReleased=false;referenceHoldAt=signatureAt=0;
 }
 void initial(Controller& c) {
  resetBench();setup();c={};c.gamepad=false;connected(&c);
@@ -83,13 +84,13 @@ int main() {
  targetReadOffset=.00029706955f;assert(writeChecked(0x7016,bitsOf(target)));
  mailboxStuck=true;uint32_t started=fakeTime;assert(!sendPacket(17));assert(fakeTime-started==20);mailboxStuck=false;
  assert(fabsf(TRAVEL-80.f*PI/180.f)<.000001f&&SPEED==1.f&&CURRENT==1.f&&ACCELERATION==5.f&&EXTEND_SIGN==-1.f);
- c.x=-512;tick(300);assert(phase==ACTIVE&&fabsf(target-origin)<.00001f&&targetRate==0);
- c.x=512;tick(55);assert(targetRate>0&&targetRate<SPEED);
+ c.axis=-512;tick(300);assert(phase==ACTIVE&&fabsf(target-origin)<.00001f&&targetRate==0);
+ c.axis=512;tick(55);assert(targetRate>0&&targetRate<SPEED);
  tick(2500);assert(phase==ACTIVE&&fabsf(target-origin+TRAVEL)<.00001f);
- c.x=-512;tick(55);assert(targetRate<0&&targetRate>-SPEED);
+ c.axis=-512;tick(55);assert(targetRate<0&&targetRate>-SPEED);
  tick(2500);assert(phase==ACTIVE&&fabsf(target-origin)<.00001f);
  // Stop midway, then re-arm at a displaced position without shifting the limits.
- c.x=512;tick(650);c.x=0;tick(300);float pause=target;tick(1000);assert(phase==ACTIVE&&fabsf(target-pause)<.00001f);
+ c.axis=512;tick(650);c.axis=0;tick(300);float pause=target;tick(1000);assert(phase==ACTIVE&&fabsf(target-pause)<.00001f);
  c.hold=false;tick(250);assert(simulatedMode==0&&phase==READY&&origin==fixedZero);
  simulatedPosition=origin-40.f*PI/180.f;
  c.hold=true;tick(100);assert(phase==ACTIVE&&enables==2&&origin==fixedZero&&fabsf(target-simulatedPosition)<.00001f);
@@ -99,14 +100,14 @@ int main() {
  c.hold=false;tick(250);c.hold=true;tick(100);assert(phase==ACTIVE&&enables==3&&origin==fixedZero);
  c.online=false;disconnected(&c);tick(20);assert(simulatedMode==0&&referenceValid);
  c.online=true;connected(&c);tick(300);assert(phase==WAIT_RELEASE&&enables==3&&origin==fixedZero);
- c.hold=false;tick(250);c.x=200;c.hold=true;tick(100);assert(phase==WAIT_RELEASE&&enables==3);
- c.x=0;tick(200);assert(enables==3);c.hold=false;tick(250);c.hold=true;tick(100);assert(enables==4);
+ c.hold=false;tick(250);c.axis=200;c.hold=true;tick(100);assert(phase==WAIT_RELEASE&&enables==3);
+ c.axis=0;tick(200);assert(enables==3);c.hold=false;tick(250);c.hold=true;tick(100);assert(enables==4);
  M5.BtnA.clicked=true;tick(20);assert(simulatedMode==0&&referenceValid&&origin==fixedZero);
  c.hold=false;tick(250);c.hold=true;tick(100);assert(phase==ACTIVE&&enables==5);
  // CAN uncertainty invalidates trust, but never overwrites the captured origin.
  link=false;tick(300);assert(phase==OFFLINE&&!referenceValid&&origin==fixedZero);
  size_t quietStart=sent.size();tick(500);assert(sent.size()==quietStart);
- link=true;simulatedMode=0;simulatedPosition=4.2f;c.x=0;tick(2000);
+ link=true;simulatedMode=0;simulatedPosition=4.2f;c.axis=0;tick(2000);
  assert(phase==NEED_REFERENCE&&enables==5&&origin==fixedZero&&!referenceValid);
  c.hold=false;tick(250);M5.BtnB.pressed=true;tick(2500);assert(!referenceValid&&origin==fixedZero&&enables==5);
  // Motor reset/settings drift while disabled also blocks a new arm.
@@ -136,13 +137,13 @@ int main() {
  initial(c);const float cycleZero=origin;c.cycleButton=true;tick(4500);
  assert(cycleStage==COMPLETE&&phase==ACTIVE&&fabsf(target-origin+TRAVEL)<.00001f&&origin==cycleZero);
  tick(2000);assert(cycleStage==COMPLETE); // Holding Y never repeats.
- c.x=-512;tick(100);assert(cycleStage==MANUAL&&phase==ACTIVE);c.x=0;tick(300);
+ c.axis=-512;tick(100);assert(cycleStage==MANUAL&&phase==ACTIVE);c.axis=0;tick(300);
  c.cycleButton=false;tick(100);c.cycleButton=true;tick(100);assert(cycleStage==RETRACT);
  c.hold=false;tick(250);assert(cycleStage==MANUAL&&simulatedMode==0&&referenceValid);
  c.hold=true;tick(150);assert(cycleStage==MANUAL&&phase==ACTIVE); // Held Y cannot resume after stop.
  c.cycleButton=false;tick(100);c.cycleButton=true;tick(100);assert(cycleStage==RETRACT);
  c.online=false;tick(100);assert(simulatedMode==0&&cycleStage==MANUAL&&referenceValid);
- initial(c);c.x=200;c.cycleButton=true;tick(100);c.x=0;tick(500);
+ initial(c);c.axis=200;c.cycleButton=true;tick(100);c.axis=0;tick(500);
  assert(cycleStage==MANUAL); // Off-center Y press is discarded, never queued.
  c.cycleButton=false;tick(100);c.cycleButton=true;tick(100);
  for(int n=0;n<50&&cycleStage!=SETTLE;++n)tick(20);
@@ -151,7 +152,7 @@ int main() {
  BP32.reports=true;tick(300);assert(phase==WAIT_RELEASE&&cycleStage==MANUAL);
  initial(c);followTarget=false;c.cycleButton=true;tick(7500);
  assert(simulatedMode==0&&cycleStage==MANUAL&&referenceValid&&Serial.output.find("cycle failed to reach/hold endpoint")!=std::string::npos);
- initial(c);c.x=512;tick(55);
+ initial(c);c.axis=512;tick(55);
  assert(fabsf(targetAtPosition-position)<.0001f&&fabsf(target-targetAtPosition)>.001f);
  tick(150);assert(iqAt>0&&velocityAt>0&&voltageAt>0&&motorIq==-.75f&&motorVelocity==-.5f);
  assert(Serial.output.find("TRACE_HEADER,t_ms,pos_ms")!=std::string::npos&&Serial.output.find("TRACE,")!=std::string::npos);
@@ -160,5 +161,34 @@ int main() {
  size_t reads=0;for(auto f:sent)if(f.kind==17&&f.index==0x701A)++reads;
  tick(1000);size_t after=0;for(auto f:sent)if(f.kind==17&&f.index==0x701A)++after;
  assert(reads==after&&velocityAt>0&&voltageAt>0); // Unsupported optional field isn't retried or logged as zero.
- puts("PASS: manual stationary reference required; held R1 retained; neutral active hold; fixed zero across mid-stroke rearm, Bluetooth loss/reconnect, button stop; no recapture; CAN/reset/settings uncertainty blocks enable without changing zero; fixed direction and 0..80 limits; readback/transport guards; one-shot cycle, neutral trigger, manual override, cancellation/no resume, endpoint timeout; timestamped telemetry, prior-target alignment, unsupported fields, input loss during telemetry. Simulated hardware only.");
+ // Preserve Y as the exact slow baseline; X selects the faster extension only.
+ initial(c);c.cycleButton=true;tick(4500);assert(cycleStage==COMPLETE&&!fastCycle);
+ for(auto f:sent)if(f.kind==18&&f.index==0x7018)assert(floatOf(f.bits)==CURRENT);
+ initial(c);const float launchZero=origin;c.fastButton=true;
+ float maximumRate=0;bool sawBurst=false,sawBrake=false;uint32_t extensionStart=0,extensionFinish=0;
+ for(int n=0;n<350&&cycleStage!=COMPLETE;++n){
+  tick(5);maximumRate=fmaxf(maximumRate,targetRate);
+  if(cycleStage==EXTEND){sawBurst=true;if(!extensionStart)extensionStart=fakeTime;assert(regs[0x7018]==bitsOf(LAUNCH_CURRENT)&&regs[0x7017]==bitsOf(LAUNCH_SPEED));}
+  if(cycleStage==LAUNCH_SETTLE){sawBrake=true;if(!extensionFinish)extensionFinish=fakeTime;assert(expectedCurrent==LAUNCH_CURRENT);}
+ }
+ assert(sawBurst&&sawBrake&&maximumRate>4.5f&&maximumRate<=LAUNCH_SPEED);
+ assert(cycleStage==COMPLETE&&expectedCurrent==CURRENT&&expectedSpeed==SPEED&&burstAt==0&&origin==launchZero);
+ assert(extensionFinish-extensionStart<900);tick(1500);assert(cycleStage==COMPLETE); // Held X never repeats.
+ // Joystick override and R1 release restore low limits before manual operation/re-arm.
+ initial(c);c.fastButton=true;for(int n=0;n<200&&cycleStage!=EXTEND;++n)tick(10);assert(cycleStage==EXTEND);c.axis=200;tick(30);
+ assert(cycleStage==MANUAL&&expectedCurrent==CURRENT&&expectedSpeed==SPEED&&phase==ACTIVE);
+ initial(c);c.fastButton=true;for(int n=0;n<200&&cycleStage!=EXTEND;++n)tick(10);assert(cycleStage==EXTEND);c.hold=false;tick(50);
+ assert(simulatedMode==0&&referenceValid&&expectedCurrent==CURRENT&&expectedSpeed==SPEED&&burstAt==0);
+ // Controller loss during an unverified burst-current write must clean up only after STOP.
+ initial(c);disconnectDuringRead=0x7018;launchReadOnlyDisconnect=true;c.fastButton=true;tick(1000);
+ assert(!c.online&&simulatedMode==0&&referenceValid&&!profilePending&&expectedCurrent==CURRENT&&regs[0x7018]==bitsOf(CURRENT));
+ initial(c);rejectLaunch=true;c.fastButton=true;tick(1200);
+ assert(simulatedMode==0&&!referenceValid&&cycleStage==MANUAL&&Serial.output.find("CYCLE EXTEND (FAST)")==std::string::npos);
+ // A nonmoving rig cannot remain at the burst current indefinitely.
+ initial(c);followTarget=false;c.fastButton=true;tick(2500);
+ assert(simulatedMode==0&&referenceValid&&expectedCurrent==CURRENT&&burstAt==0&&Serial.output.find("1-second burst deadline")!=std::string::npos);
+ initial(c);c.cycleButton=c.fastButton=true;tick(200);assert(!fastCycle); // Simultaneous press selects slow.
+ initial(c);c.hold=false;tick(250);c.fastButton=true;tick(100);c.hold=true;tick(100);
+ assert(phase==ACTIVE&&cycleStage==MANUAL); // Preheld X never launches on arm.
+ puts("PASS: manual stationary reference required; held R1 retained; neutral active hold; fixed zero across mid-stroke rearm, Bluetooth loss/reconnect, button stop; no recapture; CAN/reset/settings uncertainty blocks enable without changing zero; fixed direction and 0..80 limits; readback/transport guards; one-shot cycle, neutral trigger, manual override, cancellation/no resume, endpoint timeout; timestamped telemetry, prior-target alignment, unsupported fields, input loss during telemetry; separate Y-slow/X-fast profiles, burst guard, verified cleanup and no auto-launch. Simulated hardware only.");
 }
