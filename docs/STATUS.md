@@ -12,9 +12,9 @@
 
 The tested watchdog setting is20,000 counts, nominal1second. This establishes the observed unloaded/zero-speed behavior and CAN-reported state; it does not measure loaded stopping distance, physical torque-removal time or certify competition compliance.
 
-## Implemented and simulated/compiled, not yet hardware validated
+## MotorRecovery: bench motion verified; remaining failsafe validation
 
-MotorRecovery: one-motor Bluetooth position bench control, RB/R1 hold plus left-stickX, 1 A, 0.10 rad/s,+/-20degrees around each bench arm. Disconnect/stale Bluetooth requests stop; CAN loss discards targets and recovers disabled; fresh release/press required after return. No old-target replay or automatic enable. See MOTOR-RECOVERY.md. This build has not been installed/validated on the user's robot and does not implement the new calibrated leg reference.
+MotorRecovery: one-motor Bluetooth position bench control, RB/R1 hold plus left-stickX, 1 A, 0.10 rad/s,+/-20degrees around each bench arm. Disconnect/stale Bluetooth requests stop; CAN loss discards targets and recovers disabled; fresh release/press required after return. No old-target replay or automatic enable. See MOTOR-RECOVERY.md. The user's v0.6 log confirms Bluetooth-first startup, fresh gamepad input, deliberate arm, motion to both +/-20deg boundaries (approximately-20.02deg and+20.00deg), confirmed disable following R1 release, and disabled recovery to READY. No readback failure appears in that session. See bench-logs/motor-recovery-v0.6-motion.txt. Controller-loss/stale-input and CAN-loss behavior in this combined firmware still require hardware validation; earlier standalone watchdog results remain separate evidence. This firmware does not implement the calibrated leg reference.
 
 ## Available and planned hardware
 

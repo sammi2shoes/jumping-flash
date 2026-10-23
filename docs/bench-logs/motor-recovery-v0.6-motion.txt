@@ -1,0 +1,65 @@
+RS05 recovery bench v0.6 CAN=ESP_OK. No enable on boot.
+Startup disabled confirmed.
+Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.
+RB/R1=hold enable; left X=slow motion. Button A on Stick or serial x=stop. No spinner output.
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+PAD link=0 gamepad=0 fresh=0 reports=0 age_ms=-1 leftX=0 RB_R1=0 phase=0
+Failed to find gamepad profile for device. Fallback: using Android profile.
+BT connected: waiting for gamepad reports. Release RB/R1.
+CAN ready / motor disabled. Center left stick; release RB/R1, then press and hold it.
+PAD link=1 gamepad=1 fresh=1 reports=8 age_ms=1 leftX=-4 RB_R1=0 phase=2
+Ready. Press/hold RB/R1 with left stick centered.
+PAD link=1 gamepad=1 fresh=1 reports=127 age_ms=3 leftX=-4 RB_R1=0 phase=3
+PAD link=1 gamepad=1 fresh=1 reports=244 age_ms=5 leftX=-4 RB_R1=0 phase=3
+ARMED: RB/R1 hold + left X; bench travel +/-20 deg at 0.10 rad/s, 1 A.
+MOTION measured_deg=0.01 target_deg=0.00 rate_deg_s=0.00 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=366 age_ms=1 leftX=-4 RB_R1=1 phase=5
+MOTION measured_deg=-0.01 target_deg=0.00 rate_deg_s=0.00 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=483 age_ms=3 leftX=-4 RB_R1=1 phase=5
+MOTION measured_deg=0.00 target_deg=0.00 rate_deg_s=0.00 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=602 age_ms=13 leftX=-4 RB_R1=1 phase=5
+MOTION measured_deg=-1.73 target_deg=-1.72 rate_deg_s=0.00 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=720 age_ms=1 leftX=-4 RB_R1=1 phase=5
+MOTION measured_deg=-1.72 target_deg=-1.72 rate_deg_s=0.00 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=835 age_ms=3 leftX=-4 RB_R1=1 phase=5
+MOTION measured_deg=-6.08 target_deg=-6.45 rate_deg_s=-5.73 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=950 age_ms=13 leftX=-512 RB_R1=1 phase=5
+MOTION measured_deg=-11.49 target_deg=-12.18 rate_deg_s=-5.73 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=1066 age_ms=7 leftX=-512 RB_R1=1 phase=5
+MOTION measured_deg=-16.76 target_deg=-17.90 rate_deg_s=-5.73 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=1182 age_ms=3 leftX=-512 RB_R1=1 phase=5
+MOTION measured_deg=-20.02 target_deg=-20.00 rate_deg_s=0.00 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=1298 age_ms=6 leftX=-512 RB_R1=1 phase=5
+MOTION measured_deg=-19.98 target_deg=-20.00 rate_deg_s=0.00 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=1415 age_ms=1 leftX=-512 RB_R1=1 phase=5
+MOTION measured_deg=-19.99 target_deg=-20.00 rate_deg_s=0.00 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=1533 age_ms=3 leftX=-4 RB_R1=1 phase=5
+MOTION measured_deg=-15.76 target_deg=-14.74 rate_deg_s=5.68 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=1649 age_ms=6 leftX=508 RB_R1=1 phase=5
+MOTION measured_deg=-10.22 target_deg=-9.05 rate_deg_s=5.68 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=1767 age_ms=8 leftX=508 RB_R1=1 phase=5
+MOTION measured_deg=-4.15 target_deg=-3.37 rate_deg_s=5.68 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=1885 age_ms=11 leftX=508 RB_R1=1 phase=5
+MOTION measured_deg=1.89 target_deg=2.32 rate_deg_s=5.68 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=2003 age_ms=13 leftX=508 RB_R1=1 phase=5
+MOTION measured_deg=7.17 target_deg=8.00 rate_deg_s=5.68 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=2122 age_ms=1 leftX=508 RB_R1=1 phase=5
+MOTION measured_deg=12.74 target_deg=13.69 rate_deg_s=5.68 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=2237 age_ms=11 leftX=508 RB_R1=1 phase=5
+MOTION measured_deg=18.58 target_deg=19.37 rate_deg_s=5.68 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=2355 age_ms=6 leftX=508 RB_R1=1 phase=5
+MOTION measured_deg=19.99 target_deg=20.00 rate_deg_s=0.00 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=2472 age_ms=1 leftX=508 RB_R1=1 phase=5
+MOTION measured_deg=20.00 target_deg=20.00 rate_deg_s=0.00 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=2590 age_ms=3 leftX=-4 RB_R1=1 phase=5
+MOTION measured_deg=20.00 target_deg=20.00 rate_deg_s=0.00 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=2708 age_ms=6 leftX=508 RB_R1=1 phase=5
+MOTION measured_deg=20.00 target_deg=20.00 rate_deg_s=0.00 limit=+/-20
+PAD link=1 gamepad=1 fresh=1 reports=2825 age_ms=7 leftX=-4 RB_R1=1 phase=5
+DISARMED: stop, released enable, controller loss/stale data, or motor state change; old target discarded.
+Disabled confirmed.
+PAD link=1 gamepad=1 fresh=1 reports=2943 age_ms=3 leftX=-4 RB_R1=0 phase=0
+CAN ready / motor disabled. Center left stick; release RB/R1, then press and hold it.
+Ready. Press/hold RB/R1 with left stick centered.
+PAD link=1 gamepad=1 fresh=1 reports=3063 age_ms=6 leftX=-4 RB_R1=0 phase=3
+PAD link=1 gamepad=1 fresh=1 reports=3182 age_ms=1 leftX=-4 RB_R1=0 phase=3

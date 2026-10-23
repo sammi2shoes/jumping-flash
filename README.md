@@ -27,7 +27,7 @@ Each folder under firmware is a separate Arduino sketch. Motor power should be d
 | LegacyWatchdogTest | legacy-watchdog-test | Current file prints **standard A/B v4**; standard interface only, 0vs20,000-count watchdog comparison. Hardware passed. Folder name is historical. |
 | WatchdogObserver | watchdog-observer | Independent CAN observer. No application commands. **ButtonA cannot stop the motor.** |
 | PostUpdateDiagnostic | post-update-diagnostic | Standard-only diagnosticv2: stop/reads and timeout20000 write; no enable. Hardware passed. |
-| MotorRecovery | motor-recovery | Bluetooth one-motor **unloaded bench** controller; simulated/compiled, not hardware validated. RB/R1 hold, leftX,+/-20degrees, 1 A. NOT the calibrated0–80 degree leg firmware. |
+| MotorRecovery | motor-recovery | Bluetooth one-motor **unloaded bench** controller; v0.6 motion and R1-release disable bench verified; combined link-loss validation pending. RB/R1 hold, leftX,+/-20degrees, 1 A. NOT the calibrated0–80 degree leg firmware. |
 | MotorJog / WatchdogDiagnostic / LegacyParameterRead / LegacySetup / MotorStudioCapture | corresponding kebab-case environments | Historical diagnostics retained for investigation. See historical notes before use. |
 
 [scripts/watchdog_disconnect.py](scripts/watchdog_disconnect.py) drives the official AT-format USB-CAN adapter for the independently observed disconnect test. Windows: `py watchdog_disconnect.py COM3`, using the adapter port, not the Stick port. Requires pyserial. Follow the full [procedure](docs/WATCHDOG-DISCONNECT.md).
