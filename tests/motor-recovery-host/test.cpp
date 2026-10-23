@@ -18,6 +18,7 @@ bool mailboxStuck=false;
 int twai_get_status_info(twai_status_info_t* s){*s={};s->msgs_to_tx=mailboxStuck || fakeTime<mailboxUntil;return 0;}
 int simulatedMode=0,enables=0;
 float simulatedPosition=2.9f;
+float targetReadOffset=0.000099f;
 #include "../../firmware/MotorRecovery/MotorRecovery.ino"
 void feedback(){twai_message_t r={};r.identifier=0x0200017e|(uint32_t(simulatedMode)<<22);r.extd=1;r.data_length_code=8;rx.push_back(r);}
 int twai_receive(twai_message_t* f,int){if(rx.empty())return -1;*f=rx.front();rx.pop_front();return 0;}
@@ -32,7 +33,7 @@ int twai_transmit(const twai_message_t* f,int){
  if(type==24){assert(f->data[6]==0);feedback();}
  if(type==3){assert(held()&&centered()&&phase==ARMING&&regs[0x7028]==20000&&regs[0x7018]==bitsOf(1.f)&&regs[0x7005]==5);assert(fabsf(floatOf(regs[0x7016])-simulatedPosition)<.0001f);simulatedMode=2;++enables;feedback();}
  if(type==18){assert(index==0x7028||index==0x7018||index==0x7005||index==0x7017||index==0x7016);if(!(rejectLimit&&index==0x7018))regs[index]=bits;if(index==0x7016&&simulatedMode==2)simulatedPosition=floatOf(bits);feedback();}
- if(type==17){twai_message_t r={};r.extd=1;r.data_length_code=8;r.identifier=0x1100017e;r.data[0]=index;r.data[1]=index>>8;uint32_t value=index==0x7019?bitsOf(simulatedPosition):regs[index];memcpy(r.data+4,&value,4);rx.push_back(r);}
+ if(type==17){twai_message_t r={};r.extd=1;r.data_length_code=8;r.identifier=0x1100017e;r.data[0]=index;r.data[1]=index>>8;uint32_t value=index==0x7019?bitsOf(simulatedPosition):regs[index];if(index==0x7016)value=bitsOf(floatOf(value)+targetReadOffset);memcpy(r.data+4,&value,4);rx.push_back(r);}
  return 0;
 }
 void tick(unsigned duration){uint32_t end=fakeTime+duration;while(fakeTime<end)loop();}
@@ -47,6 +48,11 @@ void initial(Controller& c){
 }
 int main(){
  Controller c;initial(c);
+ // Measured small discrepancy is accepted throughout startup and active control;
+ // a larger difference and nonfinite target readback must still be rejected.
+ targetReadOffset=0.001f;assert(!writeChecked(0x7016,bitsOf(target)));
+ targetReadOffset=NAN;assert(!writeChecked(0x7016,bitsOf(target)));
+ targetReadOffset=0.000099f;assert(writeChecked(0x7016,bitsOf(target)));
  mailboxStuck=true;uint32_t started=fakeTime;assert(!sendPacket(17));assert(fakeTime-started==20);mailboxStuck=false;
  c.x=512;tick(2000);assert(phase==ACTIVE&&simulatedPosition<=origin+TRAVEL+.00001f);
  link=false;tick(300);assert(phase==OFFLINE);size_t quietStart=sent.size();uint32_t before=fakeTime;tick(500);assert(sent.size()==quietStart&&fakeTime-before>=500);

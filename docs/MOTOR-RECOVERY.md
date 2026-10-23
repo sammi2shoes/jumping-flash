@@ -25,3 +25,7 @@ Host simulation now models a busy mailbox between frames and verifies bounded fa
 ## v0.4: Bluetooth first
 
 Startup attempts STOP once, then displays CONNECT PAD and waits for fresh Bluetooth gamepad reports before any configuration writes or normal motor polling. Pair/reconnect the controller as usual; stored pairing keys remain intact. After input arrives, the disabled motor configuration is verified, then the existing centered-stick release/press RB/R1 gate applies. Reconnection after a loss also waits for fresh input. This does not force a controller into pairing mode or assert Ultimate2 compatibility. Simulation verifies no configuration traffic while waiting, followed by normal deliberate arming. Hardware confirmation remains pending.
+
+## v0.5: bounded position-target readback tolerance
+
+Hardware v0.4 reports confirmed fresh Ultimate2 gamepad input, ACTIVE state with joystick changes, shaft movement, and disabled confirmation on R1 release. One recovery failed exact position-target verification: wanted3D25CB84 (0.040477291rad), returned3D26334A (0.040576257rad), a difference0.000098966rad. The source of the difference is not established. Only index0x7016 now accepts finite readback within0.0002rad (0.0115deg); other settings retain exact comparisons. Simulation covers this measured-size discrepancy across startup/active operation, larger mismatch rejection, nonfinite rejection and existing failsafe paths. Speed remains0.10rad/s, current1A, travel+/-5deg; this is not continuous-rotation firmware. Hardware verification of v0.5 is pending.

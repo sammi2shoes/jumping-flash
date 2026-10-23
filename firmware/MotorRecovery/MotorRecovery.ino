@@ -126,7 +126,14 @@ bool writeChecked(uint16_t index, uint32_t bits, bool byteValue = false) {
   if (!sendPacket(18, d) || !readValue(index, actual)) {
     Serial.printf("WRITE/VERIFY failed index=0x%04X\n", index); return false;
   }
-  const bool matches = byteValue ? (actual & 255) == (bits & 255) : actual == bits;
+  bool matches = byteValue ? (actual & 255) == (bits & 255) : actual == bits;
+  // Position-target readback can differ slightly from the requested float.
+  // Only this parameter permits a bounded absolute error (about 0.0115 deg).
+  if (index == 0x7016 && !byteValue) {
+    const float wanted = floatOf(bits), returned = floatOf(actual);
+    matches = std::isfinite(wanted) && std::isfinite(returned) &&
+      fabsf(returned - wanted) <= 0.0002f;
+  }
   if (!matches) Serial.printf("VERIFY mismatch index=0x%04X wanted=%08lX got=%08lX\n",
     index, (unsigned long)bits, (unsigned long)actual);
   return matches;
@@ -217,7 +224,7 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
-  Serial.printf("RS05 recovery bench v0.4 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  Serial.printf("RS05 recovery bench v0.5 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
   if (driverReady) Serial.println(stopMotor() ? "Startup disabled confirmed." : "Startup STOP unconfirmed; use motor power cutoff if needed.");
   Serial.println("Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.");
   Serial.println("RB/R1=hold enable; left X=slow motion. Button A on Stick or serial x=stop. No spinner output.");
