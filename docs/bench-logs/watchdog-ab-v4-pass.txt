@@ -1,0 +1,47 @@
+User-supplied serial transcript from the successful RS05 standard watchdog A/B v4 bench run.
+
+CAN: ESP_OK. No enable on boot. Send t for watchdog test.
+STANDARD WATCHDOG A/B v4: zero speed, 1 A limit.
+Briefly tests timeout=0, then timeout=20000.
+No nonzero speed command.
+
+TRIAL timeout=0 counts; expected post-gap mode=2
+STOP confirmed.
+VERIFY 7018: OK
+VERIFY 7028: OK
+VERIFY 7005: OK
+Disabled zero-probe control: OK (mode=0 faults=0x00)
+Zero-speed enable: RUN confirmed
+VERIFY 7018: OK
+Timeout retained after enable: YES
+RUN zero-probe control: OK (mode=2 faults=0x00)
+1500 ms silence: no host CAN commands.
+x / A still requests stop.
+Post-gap zero-probe state: OK (mode=2 faults=0x00)
+Measured position change: 0.000148 rad
+STOP confirmed.
+
+TRIAL timeout=20000 counts; expected post-gap mode=0
+STOP confirmed.
+VERIFY 7018: OK
+VERIFY 7028: OK
+VERIFY 7005: OK
+Disabled zero-probe control: OK (mode=0 faults=0x00)
+Zero-speed enable: RUN confirmed
+VERIFY 7018: OK
+Timeout retained after enable: YES
+RUN zero-probe control: OK (mode=2 faults=0x00)
+1500 ms silence: no host CAN commands.
+x / A still requests stop.
+Post-gap zero-probe state: OK (mode=0 faults=0x00)
+Measured position change: 0.000049 rad
+STOP confirmed.
+STOP confirmed.
+VERIFY 7028: OK
+STOP confirmed.
+CONTROL (timeout=0 remains RUN): PASS
+TIMEOUT (20000 counts becomes disabled): PASS
+WATCHDOG A/B RESULT: PASS
+Final timeout requested: 20000 counts.
+Exact timing and loaded stopping remain unverified.
+Final disabled feedback confirmed. Paste complete output.

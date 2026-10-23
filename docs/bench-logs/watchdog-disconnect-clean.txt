@@ -1,0 +1,143 @@
+OBS mode=0 command_age=131642 ms feedback_age=3 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=132642 ms feedback_age=2 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=133642 ms feedback_age=1 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=134642 ms feedback_age=1 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=135642 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=136642 ms feedback_age=9 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=137642 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=138642 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=139642 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=140642 ms feedback_age=6 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=141642 ms feedback_age=5 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=142642 ms feedback_age=4 ms missed=0 rx_err=0 invalid=0
+OBSERVER: ESP_OK. 1 Mbps. No application CAN transmissions.
+Button A does NOT stop the motor in this observer sketch. Use motor power cutoff.
+MOTOR mode=0 flags=0x00 at=1008 ms
+OBS mode=0 command_age=0 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=9 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=6 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=5 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=4 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=4 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=3 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=2 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=1 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=9 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=21 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+EXPLICIT ENABLE observed.
+MOTOR mode=2 flags=0x00 at=18177 ms
+MOTOR mode=0 flags=0x00 at=18673 ms
+Disabled after EXPLICIT STOP; not a watchdog observation.
+OBS mode=0 command_age=354 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=1354 ms feedback_age=9 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=2354 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=3354 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=4354 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=5354 ms feedback_age=6 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=6354 ms feedback_age=5 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=7354 ms feedback_age=4 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=8354 ms feedback_age=4 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=9354 ms feedback_age=3 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=10354 ms feedback_age=2 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=11354 ms feedback_age=1 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=12354 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=13354 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=14354 ms feedback_age=9 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=15354 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=16354 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=17354 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=18354 ms feedback_age=6 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=19354 ms feedback_age=5 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=20354 ms feedback_age=4 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=21354 ms feedback_age=3 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=22354 ms feedback_age=3 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=23354 ms feedback_age=2 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=24354 ms feedback_age=1 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=25354 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=26354 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=27354 ms feedback_age=9 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=28354 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=29354 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=30354 ms feedback_age=6 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=31354 ms feedback_age=6 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=32354 ms feedback_age=5 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=33354 ms feedback_age=4 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=34354 ms feedback_age=3 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=35354 ms feedback_age=3 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=36354 ms feedback_age=2 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=37354 ms feedback_age=1 ms missed=0 rx_err=0 invalid=0
+OBSERVER: ESP_OK. 1 Mbps. No application CAN transmissions.
+Button A does NOT stop the motor in this observer sketch. Use motor power cutoff.
+MOTOR mode=0 flags=0x00 at=1015 ms
+OBS mode=0 command_age=0 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=6 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=5 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=5 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=4 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=3 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=2 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=2 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=1 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=9 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=0 ms feedback_age=6 ms missed=0 rx_err=0 invalid=0
+EXPLICIT ENABLE observed.
+MOTOR mode=2 flags=0x00 at=18494 ms
+OBS mode=2 command_age=33 ms feedback_age=5 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=1 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=39 ms feedback_age=1 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=47 ms feedback_age=9 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=5 ms feedback_age=5 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=23 ms feedback_age=5 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=50 ms feedback_age=3 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=28 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=37 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=54 ms feedback_age=6 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=22 ms feedback_age=4 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=30 ms feedback_age=2 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=38 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=6 ms feedback_age=6 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=14 ms feedback_age=6 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=32 ms feedback_age=4 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=40 ms feedback_age=2 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=18 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=2 command_age=818 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+MOTOR mode=0 flags=0x00 at=37225 ms
+DISABLED feedback 1028 ms after last observed host command.
+No explicit stop observed since enable.
+TIMING consistent with the configured 1-second watchdog.
+Reconnect ONLY the USB-CAN branch after PC script exits. Leave script closed; watch 5 seconds.
+OBS mode=0 command_age=1818 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=2818 ms feedback_age=9 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=3818 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=4818 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=5818 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=6818 ms feedback_age=6 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=7818 ms feedback_age=5 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=8818 ms feedback_age=4 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=9818 ms feedback_age=4 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=10818 ms feedback_age=3 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=11818 ms feedback_age=2 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=12818 ms feedback_age=1 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=13818 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=14818 ms feedback_age=0 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=15818 ms feedback_age=9 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=16818 ms feedback_age=8 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=17818 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=18818 ms feedback_age=7 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=19818 ms feedback_age=6 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=20818 ms feedback_age=5 ms missed=0 rx_err=0 invalid=0
+OBS mode=0 command_age=21818 ms feedback_age=4 ms missed=0 rx_err=0 invalid=0
