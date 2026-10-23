@@ -11,7 +11,7 @@ constexpr uint32_t WATCHDOG = 20000; // Tested nominal one-second motor timeout.
 constexpr uint32_t PAD_STALE_MS = 200, RETRY_MS = 1250;
 constexpr float CURRENT = 1.0f, SPEED = 1.0f;
 constexpr float ACCELERATION = 5.0f; // Host target-rate ramp, rad/s^2.
-constexpr float TRAVEL = 20.0f * PI / 180.0f;
+constexpr float TRAVEL = 80.0f * PI / 180.0f;
 enum Phase { OFFLINE, CONFIGURING, WAIT_RELEASE, READY, ARMING, ACTIVE };
 Phase phase = OFFLINE;
 ControllerPtr pad = nullptr;
@@ -209,7 +209,7 @@ bool armMotor() {
   target = origin = position;
   if (!writeChecked(0x7016, bitsOf(target)) || !held() || cancelled || motorFault) return false;
   targetRate = 0; phase = ACTIVE; pollAt = millis();
-  Serial.println("ARMED: RB/R1 hold + left X; bench travel +/-20 deg at 1.0 rad/s, 1 A.");
+  Serial.println("ARMED: RB/R1 hold + left X; bench travel 0..80 deg at 1.0 rad/s, 1 A.");
   return true;
 }
 
@@ -225,7 +225,7 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
-  Serial.printf("RS05 recovery bench v0.7 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  Serial.printf("RS05 recovery bench v0.8 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
   if (driverReady) Serial.println(stopMotor() ? "Startup disabled confirmed." : "Startup STOP unconfirmed; use motor power cutoff if needed.");
   Serial.println("Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.");
   Serial.println("RB/R1=hold enable; left X=slow motion. Button A on Stick or serial x=stop. No spinner output.");
@@ -260,7 +260,7 @@ void loop() {
       if (dt > .05f) dt = .05f;
       pollAt = now;
       if (!readPosition()) { loseControl("CAN feedback lost"); return; }
-      if (fabsf(position - origin) > TRAVEL + .035f) { loseControl("measured bench travel exceeded"); return; }
+      if (position < origin - .035f || position > origin + TRAVEL + .035f) { loseControl("measured bench travel exceeded"); return; }
       const int axis = pad && inputFresh() ? pad->axisX() : 0;
       const float rate = abs(axis) <= 60 ? 0.0f : float(axis) / 512.0f;
       const float desiredRate = rate * SPEED;
@@ -269,7 +269,7 @@ void loop() {
       else targetRate = fmaxf(targetRate - change, desiredRate);
       target += targetRate * dt;
       if (target >= origin + TRAVEL) { target = origin + TRAVEL; targetRate = 0; }
-      if (target <= origin - TRAVEL) { target = origin - TRAVEL; targetRate = 0; }
+      if (target <= origin) { target = origin; targetRate = 0; }
       if (!writeChecked(0x7016, bitsOf(target))) loseControl("CAN target acknowledgement lost");
     }
   }
@@ -277,7 +277,7 @@ void loop() {
     lastPadLog = millis();
     const bool linked = pad && pad->isConnected();
     const bool gamepad = linked && pad->isGamepad();
-    if (phase == ACTIVE) Serial.printf("MOTION measured_deg=%.2f target_deg=%.2f rate_deg_s=%.2f limit=+/-20\n",
+    if (phase == ACTIVE) Serial.printf("MOTION measured_deg=%.2f target_deg=%.2f rate_deg_s=%.2f limit=0..80\n",
       (position-origin)*180.0f/PI, (target-origin)*180.0f/PI, targetRate*180.0f/PI);
     Serial.printf("PAD link=%u gamepad=%u fresh=%u reports=%lu age_ms=%ld leftX=%d RB_R1=%u phase=%u\n",
       unsigned(linked), unsigned(gamepad), unsigned(inputFresh()), (unsigned long)padReports,
@@ -289,7 +289,7 @@ void loop() {
     const char* names[] = {"CAN OFFLINE", "CONFIGURING", "RELEASE RB/R1", "READY", "ARMING", "ACTIVE"};
     M5.Display.setCursor(0, 0);
     const char* padState = !pad || !pad->isConnected() ? "NO LINK" : !pad->isGamepad() ? "WAIT TYPE" : !padReport ? "NO REPORTS" : inputFresh() ? "FRESH" : "STALE";
-    M5.Display.printf("%-16s\nPAD: %-10s\n1A / +/-20 deg\nRB/R1: enable\nLeft X: move\nA / x: STOP\n", phase == OFFLINE && !inputFresh() ? "CONNECT PAD" : names[phase], padState);
+    M5.Display.printf("%-16s\nPAD: %-10s\n1A / 0..80 deg\nRB/R1: enable\nLeft X: move\nA / x: STOP\n", phase == OFFLINE && !inputFresh() ? "CONNECT PAD" : names[phase], padState);
   }
   delay(1);
 }
