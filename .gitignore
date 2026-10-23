@@ -8,3 +8,4 @@ __pycache__/
 .env
 .env.*
 !.env.example
+!docs/bench-logs/motor-recovery-v0.15-trace.csv

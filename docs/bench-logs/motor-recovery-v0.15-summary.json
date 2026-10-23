@@ -1,0 +1,36 @@
+{
+  "firmware": "v0.15",
+  "trace_samples": 201,
+  "extension_start_events": [
+    [
+      "SLOW",
+      79213
+    ],
+    [
+      "FAST",
+      87719
+    ]
+  ],
+  "fast_reported_endpoint_arrival_ms": 514,
+  "max_sampled_filtered_iq_magnitude_in_burst_A": 0.2533,
+  "max_sampled_filtered_iq_magnitude_during_fast_motion_A": 0.2335,
+  "max_sampled_fast_position_error_deg": 8.904,
+  "fast_sampled_bus_voltage_V": [
+    24.106,
+    24.106
+  ],
+  "fast_sampled_control_intervals_ms": [
+    10.0,
+    19.0
+  ],
+  "fast_steady_position_difference_velocity_deg_s": [
+    295.7800000000001,
+    273.57999999999987
+  ],
+  "loading": "User confirmed the leg was moving freely/off the ground; this was not a weight-bearing push or jump test.",
+  "limitations": [
+    "Filtered sequential current samples do not bound instantaneous peaks or determine motor work.",
+    "This log does not establish takeoff, upward impulse or a jump height.",
+    "State-reported arrival is within endpoint tolerance, not a high-speed-video measurement."
+  ]
+}

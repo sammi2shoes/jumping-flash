@@ -14,7 +14,7 @@ The tested watchdog setting is20,000 counts, nominal1second. This establishes th
 
 ## MotorRecovery: current fixed-reference prototype
 
-v0.15 requires a manually declared retracted pose (StickB held2seconds while disabled), captures zero once per startup, retains it through confirmed stops and Bluetooth reconnection, and blocks enable when motor/CAN reference trust is lost. R1 remains a held enable; neutral commands active position hold while held. Limits0..80deg; manual/Y slow profile1A/1rad/s/5rad/s^2. New X-cycle extension profile3A/5rad/s/40rad/s^2 is simulated/compiled, not hardware validated. See MOTOR-RECOVERY.md for required startup and reference limitations. No fixed reference survives a Stick restart; no hardware home sensor exists yet.
+v0.15 requires a manually declared retracted pose (StickB held2seconds while disabled), captures zero once per startup, retains it through confirmed stops and Bluetooth reconnection, and blocks enable when motor/CAN reference trust is lost. R1 remains a held enable; neutral commands active position hold while held. Limits0..80deg; manual/Y slow profile1A/1rad/s/5rad/s^2. X-cycle extension profile3A/5rad/s/40rad/s^2 has a successful free-swing hardware trace; loaded push/jump performance is not validated. See MOTOR-RECOVERY.md for required startup and reference limitations. No fixed reference survives a Stick restart; no hardware home sensor exists yet.
 
 The v0.6 log verifies both+/-20deg bench endpoints and R1-release disable. The user reports v0.9 direction, motion, controller-loss stop and reconnection worked with the leg system attached, superseding our assumption it remained unloaded. The user reports1A is sufficient to hold the lighter-spring test rig. v0.12 logs show fixed-angle operation after arming and completed cycles; startup repeatability and heavier-spring holding remain unmeasured. Host simulation covers fixed zero, held-enable stops/recovery, reference-invalid lockout and prior transport/readback guards.
 
@@ -28,7 +28,9 @@ The v0.13 hardware attempt stopped during arming on a0.000297rad position-target
 
 The v0.14 trace has51 samples at median100ms intervals: max sampled tracking error2.551deg; max sampled filtered-Iq magnitude0.5745A; extended-hold mean magnitude0.200A; voltage24.141–24.176V. One cycle completed and R1 release confirmed disable/READY. Sampled current does not show sustained saturation, but does not bound brief peaks. See MOTOR-RECOVERY.md and bench-plots/motor-recovery-v0.14.png.
 
-v0.15 preserves Y as slow and adds an X-triggered slow-retract/faster-extend trial. Verified high/low profile transitions, fast-stage10ms requested control updates, endpoint settling before low-current restoration and a1second software burst deadline are implemented. Fixed reference, watchdog and R1 stop remain. All host tests/build pass; an actual fast-cycle run is pending.
+v0.15 preserves Y as slow and adds an X-triggered slow-retract/faster-extend trial. Verified high/low profile transitions, fast-stage10ms requested control updates, endpoint settling before low-current restoration and a1second software burst deadline are implemented. Fixed reference, watchdog and R1 stop remain. All host tests/build pass. A subsequent free-swing v0.15 run verified the high profile,514ms reported endpoint arrival, settling and restoration of low holding limits.
+
+The user confirmed v0.15 testing was leg movement off the ground, despite feeling weak. Sampled burst filtered-Iq magnitude reached0.2533A against the3A setting; max sampled error8.904deg. No current/force/takeoff conclusion under body weight is established. A known-load foot-ground push is the next physical diagnostic; no speed/current increase was made from this result. See the v0.15 summary and comparison plot.
 
 ## Available and planned hardware
 
