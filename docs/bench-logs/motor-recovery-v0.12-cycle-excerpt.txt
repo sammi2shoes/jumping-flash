@@ -1,0 +1,31 @@
+Selected exact lines from the user's pasted v0.12 cycle log.
+Intervening PAD/idle/MOTION lines are omitted; this is an excerpt, not the complete capture.
+
+ARMED HOLD: keep R1 held; neutral holds; release R1 to DISABLE. Fixed travel 0..80 deg at 1.0 rad/s, 1 A.
+MOTION measured_deg=76.95 target_deg=76.94 rate_deg_s=0.00 limit=0..80 cycle=MANUAL
+CYCLE RETRACT: one cycle at 1 A / 1 rad/s. Keep R1 held; stick overrides.
+MOTION measured_deg=51.49 target_deg=46.86 rate_deg_s=-57.30 limit=0..80 cycle=RETRACT
+CYCLE PAUSE: holding retracted position for 300 ms.
+MOTION measured_deg=0.09 target_deg=-0.00 rate_deg_s=0.00 limit=0..80 cycle=PAUSE
+CYCLE EXTEND: moving toward fixed 80-degree endpoint.
+MOTION measured_deg=33.92 target_deg=38.67 rate_deg_s=57.30 limit=0..80 cycle=EXTEND
+CYCLE COMPLETE: holding extended. Release/press controller Y for a new cycle; R1 release disables.
+MOTION measured_deg=79.95 target_deg=80.00 rate_deg_s=0.00 limit=0..80 cycle=DONE/HOLD
+Cycle cancelled by joystick; manual control restored.
+MOTION measured_deg=78.59 target_deg=75.70 rate_deg_s=-42.97 limit=0..80 cycle=MANUAL
+MOTION measured_deg=23.74 target_deg=22.70 rate_deg_s=-14.32 limit=0..80 cycle=MANUAL
+CYCLE RETRACT: one cycle at 1 A / 1 rad/s. Keep R1 held; stick overrides.
+MOTION measured_deg=11.14 target_deg=6.94 rate_deg_s=-57.30 limit=0..80 cycle=RETRACT
+CYCLE PAUSE: holding retracted position for 300 ms.
+CYCLE EXTEND: moving toward fixed 80-degree endpoint.
+MOTION measured_deg=16.91 target_deg=21.49 rate_deg_s=57.30 limit=0..80 cycle=EXTEND
+MOTION measured_deg=73.48 target_deg=78.34 rate_deg_s=48.37 limit=0..80 cycle=EXTEND
+CYCLE COMPLETE: holding extended. Release/press controller Y for a new cycle; R1 release disables.
+MOTION measured_deg=80.00 target_deg=80.00 rate_deg_s=0.00 limit=0..80 cycle=DONE/HOLD
+MOTION measured_deg=80.00 target_deg=80.00 rate_deg_s=0.00 limit=0..80 cycle=DONE/HOLD
+CYCLE RETRACT: one cycle at 1 A / 1 rad/s. Keep R1 held; stick overrides.
+MOTION measured_deg=31.89 target_deg=27.00 rate_deg_s=-57.30 limit=0..80 cycle=RETRACT
+DISARMED: R1 released, stop, controller loss/stale data, or motor state change; old target discarded.
+Disabled confirmed.
+Ready. Press/hold R1 with left stick centered for active position hold.
+PAD link=1 gamepad=1 fresh=1 reports=12487 age_ms=8 leftX=-4 RB_R1=0 phase=3
