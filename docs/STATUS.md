@@ -12,9 +12,11 @@
 
 The tested watchdog setting is20,000 counts, nominal1second. This establishes the observed unloaded/zero-speed behavior and CAN-reported state; it does not measure loaded stopping distance, physical torque-removal time or certify competition compliance.
 
-## MotorRecovery: bench motion verified; remaining failsafe validation
+## MotorRecovery: current fixed-reference prototype
 
-MotorRecovery: one-motor Bluetooth position bench control, RB/R1 hold plus left-stickX, 1 A, 1.0 rad/s,0..80degrees around each bench arm. Disconnect/stale Bluetooth requests stop; CAN loss discards targets and recovers disabled; fresh release/press required after return. No old-target replay or automatic enable. See MOTOR-RECOVERY.md. The user reports v0.7 seems good (no new raw log supplied). Current v0.9 uses reversed physical extension direction and relative bench travel0..80deg at1.0rad/s and host acceleration5rad/s^2; its hardware behavior is not yet validated. The user's v0.6 log confirms Bluetooth-first startup, fresh gamepad input, deliberate arm, motion to both +/-20deg boundaries (approximately-20.02deg and+20.00deg), confirmed disable following R1 release, and disabled recovery to READY. No readback failure appears in that session. See bench-logs/motor-recovery-v0.6-motion.txt. Controller-loss/stale-input and CAN-loss behavior in this combined firmware still require hardware validation; earlier standalone watchdog results remain separate evidence. This firmware does not implement the calibrated leg reference.
+v0.10 requires a manually declared retracted pose (StickB held2seconds while disabled), captures zero once per startup, retains it through confirmed stops and Bluetooth reconnection, and blocks enable when motor/CAN reference trust is lost. R1 remains a held enable; neutral commands active position hold while held. Limits0..80deg, current1A, speed1rad/s, acceleration5rad/s^2. See MOTOR-RECOVERY.md for required startup and reference limitations. No fixed reference survives a Stick restart; no hardware home sensor exists yet.
+
+The v0.6 log verifies both+/-20deg bench endpoints and R1-release disable. The user reports v0.9 direction, motion, controller-loss stop and reconnection worked with the leg system attached, superseding our assumption it remained unloaded. Holding torque against the ankle spring and v0.10 manual-zero/fixed-limit behavior remain unvalidated on hardware. Host simulation covers fixed zero, held-enable stops/recovery, reference-invalid lockout and prior transport/readback guards.
 
 ## Available and planned hardware
 
@@ -22,7 +24,7 @@ One RobStride 05 is currently available (bench ID1); the second leg motor is pla
 
 ## Agreed but not implemented
 
-Locked-retracted boot reference0degrees; physical CCW extension to80degrees; standing height TBD; two coordinated leg motors; jump mode; gyro-walk mode; spinner ESC output; global loss/recovery handling across every actuator; GUI/AX12 integration; calibrated IMU control and persistent onboard logging. See CONTROL-ARCHITECTURE.md and LEG-MECHANISM.md.
+A repeatable physical retracted reference/jig or home sensor (manual declaration now implemented); physical CCW extension to80degrees; standing height TBD; two coordinated leg motors; jump mode; gyro-walk mode; spinner ESC output; global loss/recovery handling across every actuator; GUI/AX12 integration; calibrated IMU control and persistent onboard logging. See CONTROL-ARCHITECTURE.md and LEG-MECHANISM.md.
 
 ## Historical material
 

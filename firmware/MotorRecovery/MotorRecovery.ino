@@ -5,7 +5,7 @@
 #include <cmath>
 #include <cstring>
 
-// RS05 CAN2.0 firmware 0.5.0.14; single unloaded motor bench controller.
+// RS05 CAN2.0 firmware 0.5.0.14; single-leg prototype position hold.
 constexpr uint8_t MOTOR = 1, HOST = 126;
 constexpr uint32_t WATCHDOG = 20000; // Tested nominal one-second motor timeout.
 constexpr uint32_t PAD_STALE_MS = 200, RETRY_MS = 1250;
@@ -13,7 +13,7 @@ constexpr float CURRENT = 1.0f, SPEED = 1.0f;
 constexpr float ACCELERATION = 5.0f; // Host target-rate ramp, rad/s^2.
 constexpr float EXTEND_SIGN = -1.0f; // Extension decreases encoder position.
 constexpr float TRAVEL = 80.0f * PI / 180.0f;
-enum Phase { OFFLINE, CONFIGURING, WAIT_RELEASE, READY, ARMING, ACTIVE };
+enum Phase { OFFLINE, CONFIGURING, WAIT_RELEASE, READY, ARMING, ACTIVE, NEED_REFERENCE };
 Phase phase = OFFLINE;
 ControllerPtr pad = nullptr;
 bool driverReady = false, cancelled = false, stopRequested = false, motorFault = false;
@@ -25,6 +25,17 @@ uint16_t pendingIndex = 0;
 bool pending = false, readDone = false, readOK = false;
 uint32_t readBits = 0;
 float position = 0, target = 0, origin = 0, targetRate = 0;
+bool referenceCaptured = false, referenceValid = false;
+bool referenceButtonReleased = false;
+uint32_t referenceHoldAt = 0, signatureAt = 0;
+void invalidateReference() {
+  if (referenceValid) Serial.println("REFERENCE INVALID: motor/CAN state uncertain. Restart and manually reference at retracted pose.");
+  referenceValid = false;
+}
+bool withinReference() {
+  const float travel = EXTEND_SIGN * (position - origin);
+  return referenceCaptured && referenceValid && travel >= -.002f && travel <= TRAVEL + .002f;
+}
 
 uint32_t bitsOf(float f) { uint32_t bits; memcpy(&bits, &f, 4); return bits; }
 float floatOf(uint32_t bits) { float f; memcpy(&f, &bits, 4); return f; }
@@ -54,15 +65,18 @@ void service() {
   if (M5.BtnA.wasPressed()) stopRequested = true;
   while (Serial.available()) { char c = Serial.read(); if (c == 'x' || c == 'X') stopRequested = true; }
   if ((phase == ARMING || phase == ACTIVE) &&
-      (!held() || stopRequested || M5.BtnA.isPressed() || (phase == ARMING && !centered()))) cancelled = true;
+      (!referenceValid || !held() || stopRequested || M5.BtnA.isPressed() || (phase == ARMING && !centered()))) cancelled = true;
   twai_message_t f;
   for (int n = 0; n < 64 && twai_receive(&f, 0) == ESP_OK; ++n) {
     if (!f.extd || f.rtr || f.data_length_code != 8 || ((f.identifier >> 8) & 255) != MOTOR) continue;
     const uint8_t type = (f.identifier >> 24) & 31;
-    if (type == 2 || type == 24) {
+    // An identification broadcast after reference capture can indicate restart.
+    // Conservatively invalidate rather than infer that the old coordinate survived.
+    if (type == 0 && referenceCaptured) invalidateReference();
+    if ((type == 2 || type == 24) && (f.identifier & 255) == HOST) {
       ++modeCount; motorMode = (f.identifier >> 22) & 3; motorFlags = (f.identifier >> 16) & 63;
       if (motorFlags) motorFault = true;
-      if (phase == ACTIVE && motorMode != 2) cancelled = true;
+      if (phase == ACTIVE && motorMode != 2) { cancelled = true; invalidateReference(); }
     }
     if (type == 21) {
       for (int i = 0; i < 8; ++i) if (f.data[i]) motorFault = true;
@@ -161,12 +175,18 @@ bool stopMotor() {
   return false;
 }
 
-void loseControl(const char* reason) {
-  phase = OFFLINE; pending = false; releasedAt = 0; targetRate = 0;
+void loseControl(const char* reason, bool uncertain = false) {
+  phase = OFFLINE; pending = false; releasedAt = 0; targetRate = 0; referenceHoldAt = 0;
   Serial.printf("DISARMED: %s; old target discarded.\n", reason);
   const bool stopped = stopMotor();
   Serial.println(stopped ? "Disabled confirmed." : "STOP UNCONFIRMED: motor watchdog is fallback; use power cutoff if needed.");
+  if (uncertain || !stopped || motorFault) invalidateReference();
   cancelled = stopRequested = false;
+  if (stopped && !uncertain && !motorFault) {
+    phase = referenceCaptured && referenceValid ? WAIT_RELEASE : NEED_REFERENCE;
+    pollAt = millis();
+    return; // Confirmed disabled: keep monitoring CAN even without Bluetooth.
+  }
   // No CAN traffic during this interval: allow the motor watchdog to expire
   // even if only the feedback path was lost. Recovery starts with STOP.
   retryAt = millis() + RETRY_MS;
@@ -192,25 +212,60 @@ bool configureDisabled() {
       !writeChecked(0x7018, bitsOf(CURRENT)) ||
       !writeChecked(0x7005, 5, true) ||
       !writeChecked(0x7017, bitsOf(SPEED)) || !readPosition()) return false;
-  target = origin = position;
+  target = position;
   if (!writeChecked(0x7016, bitsOf(target))) return false;
-  phase = WAIT_RELEASE; releasedAt = 0; pollAt = millis();
-  Serial.println("CAN ready / motor disabled. Center left stick; release RB/R1, then press and hold it.");
+  phase = referenceCaptured && referenceValid ? WAIT_RELEASE : NEED_REFERENCE;
+  releasedAt = 0; referenceHoldAt = 0; referenceButtonReleased = false; pollAt = millis();
+  Serial.println("CAN ready / disabled. Reference required: position fully retracted; release then hold Stick B for 2 seconds.");
+  return true;
+}
+
+bool captureReference() {
+  // This is a manual pose declaration, not automatic homing or a motor-zero command.
+  if (referenceCaptured || !inputFresh() || !centered() || held() || !M5.BtnB.isPressed()) return false;
+  if (!stopMotor() || motorFlags || motorFault || !readPosition()) return false;
+  const float first = position;
+  const uint32_t began = millis();
+  while (uint32_t(millis() - began) < 100) {
+    service();
+    if (stopRequested || !inputFresh() || !centered() || held() || !M5.BtnB.isPressed()) return false;
+    delay(1);
+  }
+  if (!readPosition() || fabsf(position - first) > .002f || stopRequested || !inputFresh() || !centered() || held() || !M5.BtnB.isPressed()) {
+    Serial.println("Reference rejected: leg must be stationary at the known retracted pose."); return false;
+  }
+  origin = position; referenceCaptured = referenceValid = true;
+  target = position; targetRate = 0; releasedAt = 0; phase = WAIT_RELEASE;
+  Serial.printf("ZERO CAPTURED encoder=%.6f rad. Fixed 0..80 deg limits; hold R1 for active position hold.\n", origin);
+  return true;
+}
+
+bool settingsIntact() {
+  uint32_t value;
+  const uint16_t indices[] = {0x7005, 0x7018, 0x7017, 0x7028};
+  const uint32_t expected[] = {5, bitsOf(CURRENT), bitsOf(SPEED), WATCHDOG};
+  for (int i = 0; i < 4; ++i) {
+    if (!readValue(indices[i], value) || value != expected[i]) {
+      if (cancelled && !motorFault) return false;
+      invalidateReference();
+      Serial.printf("Pre-arm settings changed/unreadable: 0x%04X. No enable.\n", indices[i]); return false;
+    }
+  }
   return true;
 }
 
 bool armMotor() {
   phase = ARMING; cancelled = false;
-  if (!held() || !centered() || motorFault || !readPosition()) return false;
-  target = origin = position;
+  if (!held() || !centered() || motorFault || !referenceValid || !settingsIntact() || !readPosition() || !withinReference()) return false;
+  target = position;
   if (!writeChecked(0x7016, bitsOf(target)) || !commandState(3, 2) ||
       !writeChecked(0x7018, bitsOf(CURRENT)) || !writeChecked(0x7017, bitsOf(SPEED))) return false;
   uint32_t timeout;
   if (!readValue(0x7028, timeout) || timeout != WATCHDOG || !readPosition()) return false;
-  target = origin = position;
-  if (!writeChecked(0x7016, bitsOf(target)) || !held() || cancelled || motorFault) return false;
+  target = position;
+  if (!withinReference() || !writeChecked(0x7016, bitsOf(target)) || !held() || cancelled || motorFault) return false;
   targetRate = 0; phase = ACTIVE; pollAt = millis();
-  Serial.println("ARMED: RB/R1 hold + left X; bench travel 0..80 deg at 1.0 rad/s, 1 A.");
+  Serial.println("ARMED HOLD: keep R1 held; neutral holds; release R1 to DISABLE. Fixed travel 0..80 deg at 1.0 rad/s, 1 A.");
   return true;
 }
 
@@ -226,44 +281,63 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
-  Serial.printf("RS05 recovery bench v0.9 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  Serial.printf("RS05 position hold v0.10 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
   if (driverReady) Serial.println(stopMotor() ? "Startup disabled confirmed." : "Startup STOP unconfirmed; use motor power cutoff if needed.");
   Serial.println("Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.");
   Serial.println("Extension direction: decreasing encoder position; right stick extends, left retracts.");
-  Serial.println("RB/R1=hold enable; left X=slow motion. Button A on Stick or serial x=stop. No spinner output.");
+  Serial.println("RB/R1=hold enable; left X=motion; neutral=hold position. Button A on Stick or serial x=stop. No spinner output.");
 }
 
 void loop() {
   service();
   const uint32_t now = millis();
   if (driverReady) {
-    if (stopRequested || ((phase == ACTIVE || phase == ARMING) && (cancelled || motorFault || !held()))) {
-      loseControl("stop, released enable, controller loss/stale data, or motor state change");
+    if (stopRequested || ((phase == ACTIVE || phase == ARMING) && (cancelled || motorFault || !referenceValid || !held()))) {
+      loseControl("R1 released, stop, controller loss/stale data, or motor state change", motorFault || !referenceValid);
     } else if (phase == OFFLINE && inputFresh() && int32_t(now - retryAt) >= 0) {
       if (!recoverDriver()) retryAt = millis() + RETRY_MS;
-      else if (!configureDisabled()) loseControl("CAN/configuration not verified");
-    } else if (phase == WAIT_RELEASE || phase == READY) {
+      else if (!configureDisabled()) loseControl("CAN/configuration not verified", true);
+    } else if (phase == NEED_REFERENCE || phase == WAIT_RELEASE || phase == READY) {
       if (uint32_t(now - pollAt) >= 100) {
         pollAt = now;
-        if (!readPosition()) { loseControl("CAN feedback lost while disabled"); return; }
+        if (!readPosition()) { loseControl("CAN feedback lost while disabled", true); return; }
       }
-      if (!inputFresh() || M5.BtnA.isPressed()) { phase = WAIT_RELEASE; releasedAt = 0; }
+      if (referenceCaptured && !referenceValid) phase = NEED_REFERENCE;
+      if (referenceValid && uint32_t(now - signatureAt) >= 500) {
+        signatureAt = now;
+        if (!settingsIntact()) { loseControl("disabled motor settings changed/unreadable", true); return; }
+      }
+      if (phase == NEED_REFERENCE) {
+        if (!M5.BtnB.isPressed()) { referenceButtonReleased = true; referenceHoldAt = 0; }
+        else if (!referenceCaptured && referenceButtonReleased && inputFresh() && centered() && !held() && !M5.BtnA.isPressed()) {
+          if (!referenceHoldAt) referenceHoldAt = now;
+          if (uint32_t(now - referenceHoldAt) >= 2000) {
+            referenceHoldAt = 0; referenceButtonReleased = false;
+            if (!captureReference()) loseControl("manual reference failed", true);
+          }
+        } else referenceHoldAt = 0;
+      } else if (!inputFresh() || M5.BtnA.isPressed()) { phase = WAIT_RELEASE; releasedAt = 0; }
       else if (phase == WAIT_RELEASE) {
         if (!held() && centered()) {
           if (!releasedAt) releasedAt = now;
-          if (uint32_t(now - releasedAt) >= 100) { phase = READY; Serial.println("Ready. Press/hold RB/R1 with left stick centered."); }
+          if (uint32_t(now - releasedAt) >= 100) { phase = READY; Serial.println("Ready. Press/hold R1 with left stick centered for active position hold."); }
         } else releasedAt = 0;
       } else if (held()) {
         if (!centered()) { phase = WAIT_RELEASE; releasedAt = 0; Serial.println("Center stick and release RB/R1 before enabling."); }
-        else if (!armMotor()) loseControl("arming interrupted or unverified");
+        else if (!armMotor()) loseControl("arming interrupted or unverified", !cancelled || motorFault || !referenceValid);
       }
     } else if (phase == ACTIVE && uint32_t(now - pollAt) >= 50) {
       float dt = float(uint32_t(now - pollAt)) / 1000.0f;
       if (dt > .05f) dt = .05f;
       pollAt = now;
-      if (!readPosition()) { loseControl("CAN feedback lost"); return; }
+      if (!readPosition()) { loseControl("CAN feedback lost", true); return; }
+      if (!referenceValid) { loseControl("reference invalidated", true); return; }
+      if (uint32_t(now - signatureAt) >= 500) {
+        signatureAt = now;
+        if (!settingsIntact()) { loseControl("active motor settings changed/unreadable", !cancelled || motorFault); return; }
+      }
       const float measuredTravel = EXTEND_SIGN * (position - origin);
-      if (measuredTravel < -.035f || measuredTravel > TRAVEL + .035f) { loseControl("measured bench travel exceeded"); return; }
+      if (measuredTravel < -.035f || measuredTravel > TRAVEL + .035f) { loseControl("measured travel exceeded fixed reference limits", true); return; }
       const int axis = pad && inputFresh() ? pad->axisX() : 0;
       const float rate = abs(axis) <= 60 ? 0.0f : float(axis) / 512.0f;
       const float desiredRate = rate * SPEED;
@@ -274,7 +348,7 @@ void loop() {
       if (travel >= TRAVEL) { travel = TRAVEL; targetRate = 0; }
       if (travel <= 0) { travel = 0; targetRate = 0; }
       target = origin + EXTEND_SIGN * travel;
-      if (!writeChecked(0x7016, bitsOf(target))) loseControl("CAN target acknowledgement lost");
+      if (!writeChecked(0x7016, bitsOf(target))) loseControl("CAN target acknowledgement lost", true);
     }
   }
   if (uint32_t(millis() - lastPadLog) >= 1000) {
@@ -290,10 +364,10 @@ void loop() {
   }
   if (uint32_t(now - displayAt) >= 250) {
     displayAt = now;
-    const char* names[] = {"CAN OFFLINE", "CONFIGURING", "RELEASE RB/R1", "READY", "ARMING", "ACTIVE"};
+    const char* names[] = {"CAN OFFLINE", "CONFIGURING", "RELEASE RB/R1", "READY", "ARMING", "ACTIVE HOLD", "SET ZERO: B 2s"};
     M5.Display.setCursor(0, 0);
     const char* padState = !pad || !pad->isConnected() ? "NO LINK" : !pad->isGamepad() ? "WAIT TYPE" : !padReport ? "NO REPORTS" : inputFresh() ? "FRESH" : "STALE";
-    M5.Display.printf("%-16s\nPAD: %-10s\n1A / 0..80 deg\nRB/R1: enable\nLeft X: move\nA / x: STOP\n", phase == OFFLINE && !inputFresh() ? "CONNECT PAD" : names[phase], padState);
+    M5.Display.printf("%-16s\nPAD: %-10s\n1A / 0..80 deg\nR1: hold enable\nLeft X: move\nA / x: STOP\n", phase == NEED_REFERENCE && referenceCaptured ? "REF INVALID" : phase == OFFLINE && !inputFresh() ? "CONNECT PAD" : names[phase], padState);
   }
   delay(1);
 }
