@@ -54,7 +54,11 @@ int main(){
  targetReadOffset=NAN;assert(!writeChecked(0x7016,bitsOf(target)));
  targetReadOffset=0.000099f;assert(writeChecked(0x7016,bitsOf(target)));
  mailboxStuck=true;uint32_t started=fakeTime;assert(!sendPacket(17));assert(fakeTime-started==20);mailboxStuck=false;
- c.x=512;tick(2000);assert(phase==ACTIVE&&simulatedPosition<=origin+TRAVEL+.00001f);
+ assert(fabsf(TRAVEL-20.f*PI/180.f)<.000001f);
+ c.x=512;tick(55);assert(targetRate>0&&targetRate<SPEED);
+ tick(6000);assert(phase==ACTIVE&&fabsf(target-origin-TRAVEL)<.00001f);
+ c.x=-512;tick(55);assert(targetRate<0&&targetRate>-SPEED);
+ tick(10000);assert(phase==ACTIVE&&fabsf(target-origin+TRAVEL)<.00001f);
  link=false;tick(300);assert(phase==OFFLINE);size_t quietStart=sent.size();uint32_t before=fakeTime;tick(500);assert(sent.size()==quietStart&&fakeTime-before>=500);
  link=true;simulatedMode=0;simulatedPosition=4.2f;c.x=0;tick(2000);assert(phase==WAIT_RELEASE&&enables==1&&fabsf(target-4.2f)<.00001f);
  tick(1500);assert(enables==1);c.hold=false;tick(250);assert(phase==READY);c.hold=true;tick(100);assert(enables==2&&phase==ACTIVE&&fabsf(origin-4.2f)<.00001f);

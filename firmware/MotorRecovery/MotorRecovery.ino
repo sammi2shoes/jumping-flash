@@ -10,7 +10,8 @@ constexpr uint8_t MOTOR = 1, HOST = 126;
 constexpr uint32_t WATCHDOG = 20000; // Tested nominal one-second motor timeout.
 constexpr uint32_t PAD_STALE_MS = 200, RETRY_MS = 1250;
 constexpr float CURRENT = 1.0f, SPEED = 0.10f;
-constexpr float TRAVEL = 5.0f * PI / 180.0f;
+constexpr float ACCELERATION = 0.50f; // Host target-rate ramp, rad/s^2.
+constexpr float TRAVEL = 20.0f * PI / 180.0f;
 enum Phase { OFFLINE, CONFIGURING, WAIT_RELEASE, READY, ARMING, ACTIVE };
 Phase phase = OFFLINE;
 ControllerPtr pad = nullptr;
@@ -22,7 +23,7 @@ uint8_t motorMode = 255, motorFlags = 0;
 uint16_t pendingIndex = 0;
 bool pending = false, readDone = false, readOK = false;
 uint32_t readBits = 0;
-float position = 0, target = 0, origin = 0;
+float position = 0, target = 0, origin = 0, targetRate = 0;
 
 uint32_t bitsOf(float f) { uint32_t bits; memcpy(&bits, &f, 4); return bits; }
 float floatOf(uint32_t bits) { float f; memcpy(&f, &bits, 4); return f; }
@@ -160,7 +161,7 @@ bool stopMotor() {
 }
 
 void loseControl(const char* reason) {
-  phase = OFFLINE; pending = false; releasedAt = 0;
+  phase = OFFLINE; pending = false; releasedAt = 0; targetRate = 0;
   Serial.printf("DISARMED: %s; old target discarded.\n", reason);
   const bool stopped = stopMotor();
   Serial.println(stopped ? "Disabled confirmed." : "STOP UNCONFIRMED: motor watchdog is fallback; use power cutoff if needed.");
@@ -207,8 +208,8 @@ bool armMotor() {
   if (!readValue(0x7028, timeout) || timeout != WATCHDOG || !readPosition()) return false;
   target = origin = position;
   if (!writeChecked(0x7016, bitsOf(target)) || !held() || cancelled || motorFault) return false;
-  phase = ACTIVE; pollAt = millis();
-  Serial.println("ARMED: RB/R1 hold + left X; bench travel +/-5 deg at 0.10 rad/s, 1 A.");
+  targetRate = 0; phase = ACTIVE; pollAt = millis();
+  Serial.println("ARMED: RB/R1 hold + left X; bench travel +/-20 deg at 0.10 rad/s, 1 A.");
   return true;
 }
 
@@ -224,7 +225,7 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
-  Serial.printf("RS05 recovery bench v0.5 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  Serial.printf("RS05 recovery bench v0.6 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
   if (driverReady) Serial.println(stopMotor() ? "Startup disabled confirmed." : "Startup STOP unconfirmed; use motor power cutoff if needed.");
   Serial.println("Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.");
   Serial.println("RB/R1=hold enable; left X=slow motion. Button A on Stick or serial x=stop. No spinner output.");
@@ -262,9 +263,13 @@ void loop() {
       if (fabsf(position - origin) > TRAVEL + .035f) { loseControl("measured bench travel exceeded"); return; }
       const int axis = pad && inputFresh() ? pad->axisX() : 0;
       const float rate = abs(axis) <= 60 ? 0.0f : float(axis) / 512.0f;
-      target += rate * SPEED * dt;
-      if (target > origin + TRAVEL) target = origin + TRAVEL;
-      if (target < origin - TRAVEL) target = origin - TRAVEL;
+      const float desiredRate = rate * SPEED;
+      const float change = ACCELERATION * dt;
+      if (targetRate < desiredRate) targetRate = fminf(targetRate + change, desiredRate);
+      else targetRate = fmaxf(targetRate - change, desiredRate);
+      target += targetRate * dt;
+      if (target >= origin + TRAVEL) { target = origin + TRAVEL; targetRate = 0; }
+      if (target <= origin - TRAVEL) { target = origin - TRAVEL; targetRate = 0; }
       if (!writeChecked(0x7016, bitsOf(target))) loseControl("CAN target acknowledgement lost");
     }
   }
@@ -272,6 +277,8 @@ void loop() {
     lastPadLog = millis();
     const bool linked = pad && pad->isConnected();
     const bool gamepad = linked && pad->isGamepad();
+    if (phase == ACTIVE) Serial.printf("MOTION measured_deg=%.2f target_deg=%.2f rate_deg_s=%.2f limit=+/-20\n",
+      (position-origin)*180.0f/PI, (target-origin)*180.0f/PI, targetRate*180.0f/PI);
     Serial.printf("PAD link=%u gamepad=%u fresh=%u reports=%lu age_ms=%ld leftX=%d RB_R1=%u phase=%u\n",
       unsigned(linked), unsigned(gamepad), unsigned(inputFresh()), (unsigned long)padReports,
       padReport ? long(uint32_t(millis() - padReport)) : -1L,
@@ -282,7 +289,7 @@ void loop() {
     const char* names[] = {"CAN OFFLINE", "CONFIGURING", "RELEASE RB/R1", "READY", "ARMING", "ACTIVE"};
     M5.Display.setCursor(0, 0);
     const char* padState = !pad || !pad->isConnected() ? "NO LINK" : !pad->isGamepad() ? "WAIT TYPE" : !padReport ? "NO REPORTS" : inputFresh() ? "FRESH" : "STALE";
-    M5.Display.printf("%-16s\nPAD: %-10s\n1A / +/-5 deg\nRB/R1: enable\nLeft X: move\nA / x: STOP\n", phase == OFFLINE && !inputFresh() ? "CONNECT PAD" : names[phase], padState);
+    M5.Display.printf("%-16s\nPAD: %-10s\n1A / +/-20 deg\nRB/R1: enable\nLeft X: move\nA / x: STOP\n", phase == OFFLINE && !inputFresh() ? "CONNECT PAD" : names[phase], padState);
   }
   delay(1);
 }

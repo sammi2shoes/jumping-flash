@@ -14,7 +14,7 @@ The tested watchdog setting is20,000 counts, nominal1second. This establishes th
 
 ## Implemented and simulated/compiled, not yet hardware validated
 
-MotorRecovery: one-motor Bluetooth position bench control, RB/R1 hold plus left-stickX, 1 A, 0.10 rad/s,+/-5degrees around each bench arm. Disconnect/stale Bluetooth requests stop; CAN loss discards targets and recovers disabled; fresh release/press required after return. No old-target replay or automatic enable. See MOTOR-RECOVERY.md. This build has not been installed/validated on the user's robot and does not implement the new calibrated leg reference.
+MotorRecovery: one-motor Bluetooth position bench control, RB/R1 hold plus left-stickX, 1 A, 0.10 rad/s,+/-20degrees around each bench arm. Disconnect/stale Bluetooth requests stop; CAN loss discards targets and recovers disabled; fresh release/press required after return. No old-target replay or automatic enable. See MOTOR-RECOVERY.md. This build has not been installed/validated on the user's robot and does not implement the new calibrated leg reference.
 
 ## Available and planned hardware
 
