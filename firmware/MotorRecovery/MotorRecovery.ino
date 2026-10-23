@@ -217,7 +217,9 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
-  Serial.printf("RS05 recovery bench v0.3 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  Serial.printf("RS05 recovery bench v0.4 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  if (driverReady) Serial.println(stopMotor() ? "Startup disabled confirmed." : "Startup STOP unconfirmed; use motor power cutoff if needed.");
+  Serial.println("Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.");
   Serial.println("RB/R1=hold enable; left X=slow motion. Button A on Stick or serial x=stop. No spinner output.");
 }
 
@@ -227,7 +229,7 @@ void loop() {
   if (driverReady) {
     if (stopRequested || ((phase == ACTIVE || phase == ARMING) && (cancelled || motorFault || !held()))) {
       loseControl("stop, released enable, controller loss/stale data, or motor state change");
-    } else if (phase == OFFLINE && int32_t(now - retryAt) >= 0) {
+    } else if (phase == OFFLINE && inputFresh() && int32_t(now - retryAt) >= 0) {
       if (!recoverDriver()) retryAt = millis() + RETRY_MS;
       else if (!configureDisabled()) loseControl("CAN/configuration not verified");
     } else if (phase == WAIT_RELEASE || phase == READY) {
@@ -273,7 +275,7 @@ void loop() {
     const char* names[] = {"CAN OFFLINE", "CONFIGURING", "RELEASE RB/R1", "READY", "ARMING", "ACTIVE"};
     M5.Display.setCursor(0, 0);
     const char* padState = !pad || !pad->isConnected() ? "NO LINK" : !pad->isGamepad() ? "WAIT TYPE" : !padReport ? "NO REPORTS" : inputFresh() ? "FRESH" : "STALE";
-    M5.Display.printf("%-16s\nPAD: %-10s\n1A / +/-5 deg\nRB/R1: enable\nLeft X: move\nA / x: STOP\n", names[phase], padState);
+    M5.Display.printf("%-16s\nPAD: %-10s\n1A / +/-5 deg\nRB/R1: enable\nLeft X: move\nA / x: STOP\n", phase == OFFLINE && !inputFresh() ? "CONNECT PAD" : names[phase], padState);
   }
   delay(1);
 }

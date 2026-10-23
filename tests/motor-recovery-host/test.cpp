@@ -38,8 +38,10 @@ int twai_transmit(const twai_message_t* f,int){
 void tick(unsigned duration){uint32_t end=fakeTime+duration;while(fakeTime<end)loop();}
 void initial(Controller& c){
  setup();c={};c.gamepad=false;connected(&c);
- assert(pad==&c);tick(1800);assert(phase==WAIT_RELEASE&&enables==0&&!inputFresh());
- c.gamepad=true;BP32.reports=false;tick(300);assert(!inputFresh()&&enables==0);
+ assert(pad==&c);tick(1800);assert(phase==OFFLINE&&enables==0&&!inputFresh());
+ for(const auto& f:sent)assert(f.kind==4);
+ const size_t waitingSends=sent.size();
+ c.gamepad=true;BP32.reports=false;tick(300);assert(!inputFresh()&&enables==0&&sent.size()==waitingSends);
  BP32.reports=true;tick(250);assert(phase==READY&&enables==0&&simulatedMode==0&&padReports>0);
  c.hold=true;tick(100);assert(phase==ACTIVE&&enables==1);
 }
