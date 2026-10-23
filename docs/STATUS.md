@@ -14,7 +14,7 @@ The tested watchdog setting is20,000 counts, nominal1second. This establishes th
 
 ## MotorRecovery: current fixed-reference prototype
 
-v0.13 requires a manually declared retracted pose (StickB held2seconds while disabled), captures zero once per startup, retains it through confirmed stops and Bluetooth reconnection, and blocks enable when motor/CAN reference trust is lost. R1 remains a held enable; neutral commands active position hold while held. Limits0..80deg, current1A, speed1rad/s, acceleration5rad/s^2. See MOTOR-RECOVERY.md for required startup and reference limitations. No fixed reference survives a Stick restart; no hardware home sensor exists yet.
+v0.14 requires a manually declared retracted pose (StickB held2seconds while disabled), captures zero once per startup, retains it through confirmed stops and Bluetooth reconnection, and blocks enable when motor/CAN reference trust is lost. R1 remains a held enable; neutral commands active position hold while held. Limits0..80deg, current1A, speed1rad/s, acceleration5rad/s^2. See MOTOR-RECOVERY.md for required startup and reference limitations. No fixed reference survives a Stick restart; no hardware home sensor exists yet.
 
 The v0.6 log verifies both+/-20deg bench endpoints and R1-release disable. The user reports v0.9 direction, motion, controller-loss stop and reconnection worked with the leg system attached, superseding our assumption it remained unloaded. The user reports1A is sufficient to hold the lighter-spring test rig. v0.12 logs show fixed-angle operation after arming and completed cycles; startup repeatability and heavier-spring holding remain unmeasured. Host simulation covers fixed zero, held-enable stops/recovery, reference-invalid lockout and prior transport/readback guards.
 
@@ -23,6 +23,8 @@ The user reported REF INVALID on controller power-off in v0.10. v0.11 fixes a si
 v0.12 adds a fresh controllerY-triggered one-motor retract/pause/extend/hold sequence at unchanged test limits. Endpoint arrival and continuous300ms retracted settling are required; a6second stage timeout stops, joystick overrides, and loss/stop cancels without resume. Host simulation and compilation pass. The user's v0.12 log confirms two completed cycles, retracted pause near0.09deg, extended hold at79.95–80.00deg, manual joystick override and R1-release disable during a later retraction. Moving samples show up to4.89deg target/measurement difference; higher-speed tracking and loaded launch performance are not established. See bench-logs/motor-recovery-v0.12-cycle-excerpt.txt.
 
 v0.13 adds nominal10Hz timestamped filtered-Iq/velocity/tracking traces and nominal2Hz bus voltage. It fixes log alignment by comparing position with the command active at that read rather than the next command. Filtered-Iq hardware support and telemetry behavior await the next log. No motion setting or control change was made.
+
+The v0.13 hardware attempt stopped during arming on a0.000297rad position-target readback difference, before a trace was supplied. v0.14 allows at most0.0005rad for that register only, retains exact safety-setting checks, and clarifies the reference-invalid restart message. The exact observed hex pair and full regression suite pass; new hardware validation is pending.
 
 ## Available and planned hardware
 

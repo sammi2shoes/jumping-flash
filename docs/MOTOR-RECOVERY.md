@@ -1,6 +1,6 @@
 # Single-leg prototype: fixed reference and held enable
 
-Current MotorRecovery v0.13 targets StickC Plus2, MiniCAN GPIO32TX/GPIO33RX, RS05 CAN2.0 firmware0.5.0.14, motor1/host126,1Mbps. Build environment motor-recovery. It supersedes the per-arm relative reference in v0.9 and earlier. The current prototype has no locking mechanism. One leg is attached; the spring can extend the mechanism when torque is disabled. No jump, spinner, second leg or automatic homing is implemented.
+Current MotorRecovery v0.14 targets StickC Plus2, MiniCAN GPIO32TX/GPIO33RX, RS05 CAN2.0 firmware0.5.0.14, motor1/host126,1Mbps. Build environment motor-recovery. It supersedes the per-arm relative reference in v0.9 and earlier. The current prototype has no locking mechanism. One leg is attached; the spring can extend the mechanism when torque is disabled. No jump, spinner, second leg or automatic homing is implemented.
 
 ## Startup and controls
 
@@ -23,7 +23,7 @@ This is not a physical home sensor or a reset-proof reference. Zero is in RAM, n
 
 ## Validation
 
-v0.13 host simulation covers required manual reference, short/unsafe button holds rejected, held R1 and neutral position hold, both80deg endpoints, unchanged zero through mid-stroke disarm/rearm and Bluetooth reconnection, recapture blocked, CAN/settings uncertainty blocking enable without changing zero, readback tolerances and mailbox handling. Hardware validation of this version is pending. Prior v0.6 logs establish observed motion/R1-release disable; the user reported later v0.9 motion, controller-loss stop/reconnect and correct direction with the leg attached. Those reports do not validate this new fixed-reference implementation or holding torque under spring load. Historical version notes below describe earlier behavior and are not current operating instructions.
+v0.14 host simulation covers required manual reference, short/unsafe button holds rejected, held R1 and neutral position hold, both80deg endpoints, unchanged zero through mid-stroke disarm/rearm and Bluetooth reconnection, recapture blocked, CAN/settings uncertainty blocking enable without changing zero, readback tolerances and mailbox handling. Hardware validation of this version is pending. Prior v0.6 logs establish observed motion/R1-release disable; the user reported later v0.9 motion, controller-loss stop/reconnect and correct direction with the leg attached. Those reports do not validate this new fixed-reference implementation or holding torque under spring load. Historical version notes below describe earlier behavior and are not current operating instructions.
 
 ## v0.2: Bluetooth connection classification and diagnostics
 
@@ -122,3 +122,11 @@ Unsupported optional telemetry (read status1) is disabled for that startup and r
 Procedure: upload, manually reference with StickB as usual, arm holding R1, keep the joystick centered and press controllerY for one cycle. Copy the serial output, including TRACE lines, through cycle completion and R1 release. One cycle is enough for the first check. No new software or library installation is required. Serial remains115200baud. This trace is intended for the current slow rig test, not resolving millisecond launch peaks.
 
 Regression simulation verifies trace output, register values/timestamps, alignment to the already-active target, unsupported-current data staying nan without repeated reads, and controller loss during all three telemetry reads retaining reference only after a confirmed stop. Existing cycle/zero/failsafe checks and ESP32 compilation pass. Hardware validation of v0.13 is pending.
+
+## v0.14: bounded target-readback tolerance adjustment
+
+A [user log excerpt](bench-logs/motor-recovery-v0.13-target-mismatch-excerpt.txt) shows arming verification stopped on index0x7016: wanted0x40B122C3=5.535493374rad, returned0x40B12532=5.535790443rad. The difference0.000297070rad (0.01702deg) exceeded the former0.0002rad threshold. Disabled feedback was confirmed and reference trust was conservatively invalidated; that flag did not mean software reassigned zero. The precise source of the readback discrepancy has not been established.
+
+Only finite position-target readback now permits an absolute difference up to0.0005rad (0.02865deg). For scale, the RS05 manual's14-bit absolute encoder gives2pi/16384=0.0003835rad per full-turn count; this comparison does not prove the command register quantization or a measured geared-output resolution. The tolerance is a small bounded allowance informed by the observed discrepancy. Current, speed, watchdog and byte-mode setting verification remain exact. Larger target discrepancies, nonfinite values and actual transport/reset failures still stop/invalidate as before. Fixed-zero capture, travel endpoints and current/speed limits are unchanged.
+
+Tests include the exact hardware hex pair, near-threshold acceptance, a0.0006rad discrepancy rejected, NaN/infinity rejected, and the full startup/motion/cycle/recovery suite with the observed-size offset. ESP32 compilation and host checks pass. Mismatch diagnostics also print delta/tolerance in radians. The recovery message now explicitly says restart when the reference is invalid, rather than suggesting the B button can overwrite an existing session zero. Upload/restart and manually reference again before the next cycle trace. Hardware confirmation of v0.14 and filtered-Iq telemetry remains pending.

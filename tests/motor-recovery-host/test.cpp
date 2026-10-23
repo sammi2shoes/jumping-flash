@@ -20,7 +20,7 @@ bool mailboxStuck=false;
 int twai_get_status_info(twai_status_info_t* s){*s={};s->msgs_to_tx=mailboxStuck || fakeTime<mailboxUntil;return 0;}
 int simulatedMode=0,enables=0;
 float simulatedPosition=2.9f;
-float targetReadOffset=0.000099f;
+float targetReadOffset=0.00029706955f;
 #include "../../firmware/MotorRecovery/MotorRecovery.ino"
 void feedback(){twai_message_t r={};r.identifier=0x0200017e|(uint32_t(simulatedMode)<<22);r.extd=1;r.data_length_code=8;rx.push_back(r);}
 int twai_receive(twai_message_t* f,int){if(rx.empty()||fakeTime<rxReadyAt)return -1;*f=rx.front();rx.pop_front();return 0;}
@@ -45,7 +45,7 @@ int twai_transmit(const twai_message_t* f,int){
 void tick(unsigned duration){uint32_t end=fakeTime+duration;while(fakeTime<end)loop();}
 void resetBench() {
  fakeTime=100;interruptAt=0;rx.clear();regs.clear();sent.clear();link=true;rejectLimit=false;disconnectOnEnable=failStop=false;followTarget=true;
- disconnectDuringRead=rejectTelemetryIndex=0;rxReadyAt=0;mailboxUntil=0;mailboxStuck=false;simulatedMode=0;enables=0;simulatedPosition=2.9f;targetReadOffset=.000099f;
+ disconnectDuringRead=rejectTelemetryIndex=0;rxReadyAt=0;mailboxUntil=0;mailboxStuck=false;simulatedMode=0;enables=0;simulatedPosition=2.9f;targetReadOffset=.00029706955f;
  M5={};BP32={};Serial.output.clear();phase=OFFLINE;pad=nullptr;driverReady=false;
  cancelled=stopRequested=motorFault=false;padReport=retryAt=pollAt=releasedAt=displayAt=0;
  padReports=lastPadLog=modeCount=0;motorMode=255;motorFlags=0;pendingIndex=0;
@@ -72,10 +72,15 @@ void initial(Controller& c) {
  c.hold=true;tick(100);assert(phase==ACTIVE&&enables==1);
 }
 int main() {
+ assert(positionTargetMatches(0x40B122C3,0x40B12532)); // Exact user's failing readback pair.
+ assert(!positionTargetMatches(bitsOf(5.535f),bitsOf(5.5356f)));
+ assert(positionTargetMatches(bitsOf(5.535f),bitsOf(5.53549f)));
+ assert(!positionTargetMatches(bitsOf(NAN),bitsOf(NAN)));
+ assert(!positionTargetMatches(bitsOf(5.f),bitsOf(INFINITY)));
  Controller c;initial(c);const float fixedZero=origin;
  targetReadOffset=.001f;assert(!writeChecked(0x7016,bitsOf(target)));
  targetReadOffset=NAN;assert(!writeChecked(0x7016,bitsOf(target)));
- targetReadOffset=.000099f;assert(writeChecked(0x7016,bitsOf(target)));
+ targetReadOffset=.00029706955f;assert(writeChecked(0x7016,bitsOf(target)));
  mailboxStuck=true;uint32_t started=fakeTime;assert(!sendPacket(17));assert(fakeTime-started==20);mailboxStuck=false;
  assert(fabsf(TRAVEL-80.f*PI/180.f)<.000001f&&SPEED==1.f&&CURRENT==1.f&&ACCELERATION==5.f&&EXTEND_SIGN==-1.f);
  c.x=-512;tick(300);assert(phase==ACTIVE&&fabsf(target-origin)<.00001f&&targetRate==0);

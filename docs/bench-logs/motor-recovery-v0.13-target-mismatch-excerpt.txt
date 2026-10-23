@@ -1,0 +1,9 @@
+Selected exact lines from the user's v0.13 attempt; intervening PAD lines omitted.
+
+VERIFY mismatch index=0x7016 wanted=40B122C3 got=40B12532
+DISARMED: arming interrupted or unverified; old target discarded.
+Disabled confirmed.
+REFERENCE INVALID: motor/CAN state uncertain. Restart and manually reference at retracted pose.
+PAD link=1 gamepad=1 fresh=1 reports=19024 age_ms=4 leftX=-4 RB_R1=1 phase=0
+CAN ready / disabled. Reference required: position fully retracted; release then hold Stick B for 2 seconds.
+PAD link=1 gamepad=1 fresh=1 reports=19262 age_ms=1 leftX=-4 RB_R1=1 phase=6

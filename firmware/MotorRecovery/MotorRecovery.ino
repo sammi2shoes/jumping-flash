@@ -13,6 +13,7 @@ constexpr float CURRENT = 1.0f, SPEED = 1.0f;
 constexpr float ACCELERATION = 5.0f; // Host target-rate ramp, rad/s^2.
 constexpr float EXTEND_SIGN = -1.0f; // Extension decreases encoder position.
 constexpr float TRAVEL = 80.0f * PI / 180.0f;
+constexpr float POSITION_READBACK_TOL = 0.0005f; // rad, ~0.029 deg; target readback only.
 enum Phase { OFFLINE, CONFIGURING, WAIT_RELEASE, READY, ARMING, ACTIVE, NEED_REFERENCE };
 Phase phase = OFFLINE;
 ControllerPtr pad = nullptr;
@@ -181,6 +182,10 @@ bool readValue(uint16_t index, uint32_t& bits) {
   }
   bits = readBits; return true;
 }
+bool positionTargetMatches(uint32_t wantedBits, uint32_t actualBits) {
+  const float wanted = floatOf(wantedBits), actual = floatOf(actualBits);
+  return std::isfinite(wanted) && std::isfinite(actual) && fabsf(actual - wanted) <= POSITION_READBACK_TOL;
+}
 bool writeChecked(uint16_t index, uint32_t bits, bool byteValue = false) {
   operationFailure = OP_OK;
   service();
@@ -193,15 +198,14 @@ bool writeChecked(uint16_t index, uint32_t bits, bool byteValue = false) {
   }
   bool matches = byteValue ? (actual & 255) == (bits & 255) : actual == bits;
   // Position-target readback can differ slightly from the requested float.
-  // Only this parameter permits a bounded absolute error (about 0.0115 deg).
+  // Only this parameter permits the bounded tolerance; settings stay exact.
   if (index == 0x7016 && !byteValue) {
-    const float wanted = floatOf(bits), returned = floatOf(actual);
-    matches = std::isfinite(wanted) && std::isfinite(returned) &&
-      fabsf(returned - wanted) <= 0.0002f;
+    matches = positionTargetMatches(bits, actual);
   }
   if (!matches) {
     operationFailure = OP_CAN_FAILURE;
     Serial.printf("VERIFY mismatch index=0x%04X wanted=%08lX got=%08lX\n", index, (unsigned long)bits, (unsigned long)actual);
+    if (index == 0x7016) Serial.printf("Target delta_rad=%.7f tolerance_rad=%.7f\n", floatOf(actual)-floatOf(bits), POSITION_READBACK_TOL);
   }
   return matches;
 }
@@ -325,7 +329,12 @@ bool configureDisabled() {
   if (!writeChecked(0x7016, bitsOf(target))) return false;
   phase = referenceCaptured && referenceValid ? WAIT_RELEASE : NEED_REFERENCE;
   releasedAt = 0; referenceHoldAt = 0; referenceButtonReleased = false; pollAt = millis();
-  Serial.println("CAN ready / disabled. Reference required: position fully retracted; release then hold Stick B for 2 seconds.");
+  if (referenceCaptured && !referenceValid)
+    Serial.println("CAN ready / disabled; REF INVALID. Restart and manually reference at the known retracted pose. B cannot overwrite this session's zero.");
+  else if (referenceCaptured)
+    Serial.println("CAN ready / disabled; existing fixed zero preserved. Center stick and release R1 before enabling.");
+  else
+    Serial.println("CAN ready / disabled. Reference required: position fully retracted; release then hold Stick B for 2 seconds.");
   return true;
 }
 
@@ -392,7 +401,7 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
-  Serial.printf("RS05 position hold v0.13 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+  Serial.printf("RS05 position hold v0.14 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
   if (driverReady) Serial.println(stopMotor() ? "Startup disabled confirmed." : "Startup STOP unconfirmed; use motor power cutoff if needed.");
   Serial.println("Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.");
   Serial.println("Extension direction: decreasing encoder position; right stick extends, left retracts.");
