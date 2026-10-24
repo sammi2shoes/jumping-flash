@@ -10,3 +10,8 @@ __pycache__/
 !.env.example
 !docs/bench-logs/motor-recovery-v0.15-trace.csv
 !docs/bench-logs/motor-recovery-v0.16-fast-trace.csv
+
+# Android local build state
+android/**/build/
+android/**/.gradle/
+android/**/local.properties

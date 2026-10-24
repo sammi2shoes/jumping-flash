@@ -69,3 +69,7 @@ scripts/check.sh runs eight C++ host simulations, Python serial-protocol simulat
 The chronological [RS05 investigation](docs/RS05-FIRMWARE.md) and [historical README](docs/history/INITIAL-README.md) preserve superseded versions and troubleshooting. Earlier firmware0.5.0.3 watchdog assumptions are not current instructions. Generated build folders, toolchains, Python caches and local.env files are excluded from Git. The [MotorRecovery v0.16 source ZIP](releases/MotorRecovery-v0.16.zip) requires a manual reference using Stick buttonB, preserves fixed0–80degree limits across ordinary stops/Bluetooth return, retains held R1 enable, keeps controllerY as the slow baseline and adds controllerX for a buffered fast extension with immediate return; see [current instructions](docs/MOTOR-RECOVERY.md). It is a convenience snapshot, not a hardware-validated release.
 
 Competition design priority: [minimum-latency launch/cutoff control](docs/CONTROL-ARCHITECTURE.md#competition-latency-priority), with optional logging/reads outside the critical stroke. Current MotorRecovery remains diagnostic prototype firmware.
+
+## AX12 Android controller
+
+[Download Jumping Flash AX12 v0.1.0 APK](releases/JumpingFlash-AX12-v0.1.0.apk) · [Install/use/build instructions](android/ax12/README.md) · [BLE contract](docs/AX12-BLE-PROTOCOL.md). Includes configurable gimbals/buttons/axis switches, saved calibration, dashboard and diagnostic export. Matching Stick BLE firmware is still required for robot control; current MotorRecovery uses gamepad HID.
