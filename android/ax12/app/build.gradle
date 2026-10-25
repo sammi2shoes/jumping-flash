@@ -4,7 +4,7 @@ android {
  signingConfigs { development { storeFile rootProject.file('development-signing.keystore'); storePassword 'android'; keyAlias 'androiddebugkey'; keyPassword 'android' } }
  buildTypes { debug { signingConfig signingConfigs.development } }
  compileSdk 35
- defaultConfig { applicationId 'com.jumpingflash.ax12'; minSdk 28; targetSdk 35; versionCode 5; versionName '0.4.0' }
+ defaultConfig { applicationId 'com.jumpingflash.ax12'; minSdk 28; targetSdk 35; versionCode 6; versionName '0.4.1' }
  testOptions {
   unitTests.includeAndroidResources = true
   unitTests.all {

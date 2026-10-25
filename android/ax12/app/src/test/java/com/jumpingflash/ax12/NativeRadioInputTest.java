@@ -71,4 +71,69 @@ public class NativeRadioInputTest {
     assertFalse(r.running());
     assertEquals(1, p.closes);
   }
+
+  @Test
+  public void invalidReportDoesNotRequireManualRestart() throws Exception {
+    java.util.concurrent.ConcurrentLinkedQueue<byte[]> queue =
+        new java.util.concurrent.ConcurrentLinkedQueue<>();
+    NativeUartProbe.Port port =
+        new NativeUartProbe.Port() {
+          public boolean available() {
+            return true;
+          }
+
+          public String availability() {
+            return "test";
+          }
+
+          public String describe(String p) {
+            return p;
+          }
+
+          public int open(String p) {
+            return 1;
+          }
+
+          public String error(int e) {
+            return "test";
+          }
+
+          public void close(int fd) {}
+
+          public int read(int fd, byte[] out) {
+            byte[] next = queue.poll();
+            if (next == null) {
+              try {
+                Thread.sleep(2);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+              }
+              return 0;
+            }
+            System.arraycopy(next, 0, out, 0, next.length);
+            return next.length;
+          }
+        };
+    byte[] bad = actualFrame();
+    bad[6 + 23 * 2] = 0;
+    bad[7 + 23 * 2] = 0;
+    bad[98] = (byte) UmbusProbe.crc8(bad, 1, 98);
+    queue.add(bad);
+    NativeRadioInput reader = new NativeRadioInput(port);
+    reader.start(true);
+    long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    try {
+      while (!reader.status().contains("Waiting for a valid") && System.nanoTime() < end)
+        Thread.yield();
+      assertTrue(reader.running());
+      assertNull(reader.sample());
+      assertTrue(reader.status().contains("Waiting for a valid"));
+      queue.add(actualFrame());
+      while (reader.sample() == null && System.nanoTime() < end) Thread.yield();
+      assertNotNull(reader.sample());
+      assertTrue(reader.status().contains("Internal inputs running"));
+    } finally {
+      reader.stop();
+    }
+  }
 }

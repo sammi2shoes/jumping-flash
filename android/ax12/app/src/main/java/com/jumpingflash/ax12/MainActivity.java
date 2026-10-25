@@ -14,6 +14,45 @@ import java.util.*;
 public final class MainActivity extends Activity implements InputManager.InputDeviceListener {
   private boolean nativeProbeMode = false;
   private boolean nativeLive = false, inputStopSent = false;
+  private boolean nativeEnabled = true;
+  private Button nativeToggle;
+  private TextView nativeLiveStatus;
+  private int nativeResumeGeneration = 0;
+
+  private void setNativeEnabled(boolean enabled) {
+    nativeEnabled = enabled;
+    ++nativeResumeGeneration;
+    prefs.edit().putBoolean("nativeEnabled", enabled).apply();
+    disarm(
+        enabled
+            ? "Internal inputs enabled; select SB DISARMED before arming"
+            : "Internal inputs OFF");
+    if (!enabled) {
+      nativeRadio.stop();
+      sendFrame();
+    } else {
+      if (nativeProbe.running()) nativeProbe.stop();
+      nativeProbeMode = false;
+      prefs.edit().putBoolean("nativeProbeMode", false).apply();
+      selectNativeInputs();
+      resumeNativeInputs(nativeResumeGeneration, 0);
+    }
+    render();
+  }
+
+  private void resumeNativeInputs(int generation, int attempt) {
+    if (!foreground || !nativeEnabled || nativeProbeMode || generation != nativeResumeGeneration)
+      return;
+    if (nativeRadio.running() || nativeProbe.running()) {
+      if (attempt < 25) handler.postDelayed(() -> resumeNativeInputs(generation, attempt + 1), 50);
+      return;
+    }
+    nativeNumber = -1;
+    radioState = new RadioProfile.Snapshot();
+    disarm("Internal inputs resumed; select SB DISARMED before rearming");
+    nativeRadio.start(true);
+  }
+
   private NativeRadioInput nativeRadio;
   private long nativeNumber = -1;
 
@@ -147,6 +186,14 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   private void radioDashboard() {
     summary = text("", 18);
     body.addView(summary);
+    body.addView(
+        nativeToggle =
+            button(
+                nativeEnabled ? "Internal inputs ON • turn OFF" : "Internal inputs OFF • turn ON",
+                () -> {
+                  setNativeEnabled(!nativeEnabled);
+                  showTab(0);
+                }));
     sticks = new StickView();
     body.addView(sticks, new LinearLayout.LayoutParams(-1, 160));
     radioInfo = text("", 16);
@@ -608,6 +655,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     prefs = getSharedPreferences("ax12", MODE_PRIVATE);
     nativeProbeMode = prefs.getBoolean("nativeProbeMode", false);
     nativeRadio = new NativeRadioInput(new NativeUartProbe.DevicePort());
+    nativeEnabled = prefs.getBoolean("nativeEnabled", true);
     session = 1 + new java.security.SecureRandom().nextInt(65535);
     ble =
         new BleLink(
@@ -648,9 +696,13 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                     () -> {
                       if (!isDestroyed()) render();
                     }));
-    detectInput();
+    if (nativeEnabled) {
+      nativeProbeMode = false;
+      prefs.edit().putBoolean("nativeProbeMode", false).apply();
+      selectNativeInputs();
+    } else detectInput();
     showTab(0);
-    log("AX12 app 0.4.0. Named RC profile; robot-side spinner/jump outputs not implemented.");
+    log("AX12 app 0.4.1. Named RC profile; robot-side spinner/jump outputs not implemented.");
     handler.post(pump);
   }
 
@@ -693,6 +745,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     radioInfo = null;
     nativeProbeView = null;
     nativeOwnerCheck = null;
+    nativeToggle = null;
+    nativeLiveStatus = null;
     LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
     root.setFitsSystemWindows(true);
@@ -1046,13 +1100,12 @@ public final class MainActivity extends Activity implements InputManager.InputDe
 
   private void operatorStop() {
     if (nativeProbe != null) nativeProbe.stop();
-    if (nativeRadio != null) nativeRadio.stop();
     disarm("Operator STOP");
     sendFrame();
   }
 
   private void enterNativeProbeMode() {
-    if (nativeRadio != null) nativeRadio.stop();
+    setNativeEnabled(false);
     disarm("Entering native probe mode");
     sendFrame();
     ble.close();
@@ -1085,43 +1138,37 @@ public final class MainActivity extends Activity implements InputManager.InputDe
         text(
             "Initialize RadioMasterAX once, then Force stop it in Android settings. Remove the"
                 + " DSC-to-USB cable. Live input uses the verified internal ttyS0 reports; no UART"
-                + " writes. Start explicitly after every background/pause. Verify gimbals centered,"
-                + " throttle OFF and SB DISARMED on the dashboard before connecting the rig.",
+                + " writes. Inputs start by default and resume automatically after backgrounding."
+                + " Turn them OFF before opening RadioMasterAX. Verify gimbals centered, throttle"
+                + " OFF and SB DISARMED on the dashboard before connecting the rig.",
             14));
     body.addView(
         button(
             "RadioMasterAX app settings",
             () -> {
+              setNativeEnabled(false);
               operatorStop();
               startActivity(
                   new Intent(
                       android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                       android.net.Uri.parse("package:com.Flyshark.RadioMasterAX")));
             }));
-    CheckBox liveOwner = new CheckBox(this);
-    liveOwner.setTextColor(TEXT);
-    liveOwner.setText("RadioMasterAX and other serial readers are stopped");
-    body.addView(liveOwner);
+    body.addView(
+        nativeToggle =
+            button(
+                nativeEnabled ? "Internal inputs ON • turn OFF" : "Internal inputs OFF • turn ON",
+                () -> {
+                  setNativeEnabled(!nativeEnabled);
+                  showTab(4);
+                }));
     body.addView(
         button(
-            "Start LIVE internal inputs",
+            "Retry internal input connection",
             () -> {
-              if (!liveOwner.isChecked()) {
-                toast("Stop RadioMasterAX and confirm first");
-                return;
-              }
-              if (nativeProbe.running() || nativeRadio.running()) {
-                toast("Stop the existing reader and wait for close first");
-                return;
-              }
-              nativeProbeMode = false;
-              prefs.edit().putBoolean("nativeProbeMode", false).apply();
-              selectNativeInputs();
-              nativeRadio.start(true);
+              setNativeEnabled(true);
               showTab(0);
             }));
-    body.addView(button("Stop LIVE inputs / disable leg", this::operatorStop));
-    body.addView(text(nativeRadio.status(), 14));
+    body.addView(nativeLiveStatus = text(nativeRadio.status(), 14));
     body.addView(text("Optional passive capture (blocks robot outputs)", 18));
     body.addView(
         text(
@@ -1218,7 +1265,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
         "Restore stock RadioMaster app",
         () -> {
           nativeProbe.stop();
-          nativeRadio.stop();
+          setNativeEnabled(false);
           disarm("Restoring stock app");
           ble.close();
           restoreRadioWhenClosed(0);
@@ -1365,7 +1412,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void selectInput(InputDevice d) {
-    if (nativeRadio != null) nativeRadio.stop();
+    if (nativeRadio != null) setNativeEnabled(false);
     nativeLive = false;
     if (d.getId() == inputId) return;
     disarm("Input device selected");
@@ -1483,8 +1530,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
 
   @Override
   public boolean dispatchGenericMotionEvent(MotionEvent e) {
-    if (nativeLive) return super.dispatchGenericMotionEvent(e);
     inputTrace.motion(e);
+    if (nativeLive) return super.dispatchGenericMotionEvent(e);
     if ((e.getSource() & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
         && e.getAction() == MotionEvent.ACTION_MOVE) {
       InputDevice d = e.getDevice();
@@ -1522,8 +1569,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
 
   @Override
   public boolean dispatchKeyEvent(KeyEvent e) {
-    if (nativeLive) return super.dispatchKeyEvent(e);
     inputTrace.key(e);
+    if (nativeLive) return super.dispatchKeyEvent(e);
     if (e.getDeviceId() == inputId
         && (KeyEvent.isGamepadButton(e.getKeyCode())
             || (e.getKeyCode() >= KeyEvent.KEYCODE_DPAD_UP
@@ -1858,6 +1905,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
               + (liveInputFresh() ? "FRESH" : "STOPPED / STALE")
               + " • "
               + nativeRadio.status());
+    if (nativeToggle != null)
+      nativeToggle.setText(
+          nativeEnabled ? "Internal inputs ON • turn OFF" : "Internal inputs OFF • turn ON");
+    if (nativeLiveStatus != null) nativeLiveStatus.setText(nativeRadio.status());
     if (nativeProbeMode) headline.setText("NATIVE PROBE • ROBOT OUTPUT BLOCKED");
     if (nativeProbeView != null && nativeProbe != null)
       nativeProbeView.setText(nativeProbe.snapshot());
@@ -1879,11 +1930,13 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     cycleAxisWasHeld = true;
     disarm("Foreground resumed; deliberate rearm required");
     detectInput();
+    if (nativeEnabled && !nativeProbeMode) resumeNativeInputs(++nativeResumeGeneration, 0);
   }
 
   @Override
   protected void onPause() {
     foreground = false;
+    ++nativeResumeGeneration;
     if (nativeProbe != null) nativeProbe.stop();
     if (nativeRadio != null) nativeRadio.stop();
     if (nativeOwnerCheck != null) nativeOwnerCheck.setChecked(false);
@@ -1899,7 +1952,6 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     super.onWindowFocusChanged(focus);
     if (!focus) {
       if (nativeProbe != null) nativeProbe.stop();
-      if (nativeRadio != null) nativeRadio.stop();
       if (nativeOwnerCheck != null) nativeOwnerCheck.setChecked(false);
       disarm("App lost focus");
       sendFrame();
@@ -1953,7 +2005,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
         if (out == null) throw new IOException("No output stream");
         String header =
-            "Jumping Flash AX12 0.4.0\nNamed profile "
+            "Jumping Flash AX12 0.4.1\nNamed profile "
                 + radioMappingText()
                 + "\nDevice "
                 + deviceName

@@ -26,7 +26,7 @@ public final class NativeRadioInput {
   private final NativeUartProbe.Port port;
   private volatile boolean running, stop;
   private volatile Sample latest;
-  private volatile String status = "Stopped; start explicitly after stopping RadioMasterAX";
+  private volatile String status = "Stopped";
 
   public NativeRadioInput(NativeUartProbe.Port p) {
     port = p;
@@ -83,7 +83,8 @@ public final class NativeRadioInput {
         status = "Open failed: " + port.error(fd);
         return;
       }
-      status = "Internal inputs running; " + port.info(fd);
+      String runningStatus = "Internal inputs running; " + port.info(fd);
+      status = runningStatus;
       byte[] b = new byte[512];
       UmbusProbe decoder = new UmbusProbe();
       while (!stop) {
@@ -97,16 +98,16 @@ public final class NativeRadioInput {
         int before = decoder.channelCandidates;
         decoder.feed(b, n, now);
         if (decoder.channelCandidates != before) {
-          if (decoder.exactLiveLayout && valid(decoder.sources))
+          if (decoder.exactLiveLayout && valid(decoder.sources)) {
             latest = new Sample(decoder.sources, now, decoder.channelCandidates);
-          else {
+            status = runningStatus;
+          } else {
             latest = null;
-            status = "Invalid source report; explicit restart required";
-            return;
+            status = "Waiting for a valid source report; outputs blocked";
           }
         }
       }
-      status = "Stopped; explicit restart required";
+      status = "Stopped";
     } catch (Exception | LinkageError e) {
       status = "Reader failed: " + e.getMessage();
     } finally {

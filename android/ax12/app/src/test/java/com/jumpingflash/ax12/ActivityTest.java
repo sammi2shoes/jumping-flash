@@ -94,6 +94,8 @@ public class ActivityTest {
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity a = c.get();
       set(a, "radioActive", false);
+      set(a, "nativeLive", false);
+      set(a, "nativeEnabled", false);
       set(a, "inputId", 42);
       set(a, "armedRequest", true);
       set(a, "launchPending", true);
@@ -147,13 +149,18 @@ public class ActivityTest {
       android.util.SparseArray<android.view.InputDevice> devices = new android.util.SparseArray<>();
       devices.put(42, org.robolectric.shadows.ShadowInputDevice.makeInputDeviceNamed("AX12 test"));
       org.robolectric.util.ReflectionHelpers.setField(im, "mInputDevices", devices);
+      set(a, "nativeLive", false);
+      set(a, "nativeEnabled", false);
       set(a, "inputId", 42);
       Object attach =
           org.robolectric.util.ReflectionHelpers.getField(
               a.getWindow().getDecorView(), "mAttachInfo");
       org.robolectric.util.ReflectionHelpers.setField(attach, "mHasWindowFocus", true);
       RadioProfile p = (RadioProfile) get(a, "radio");
-      for (int n = 0; n < 7; n++) p.binding[n].axis = n;
+      for (int n = 0; n < 7; n++) {
+        p.binding[n] = new RadioProfile.Binding();
+        p.binding[n].axis = n;
+      }
       p.binding[1].captured = p.binding[2].captured = 7;
       p.binding[0].captured = 5;
       java.util.Map<Integer, Float> values = (java.util.Map<Integer, Float>) get(a, "axes");
@@ -455,6 +462,47 @@ public class ActivityTest {
       assertFalse(
           (Boolean) get(a, "armedRequest")); // New heartbeat with SB still armed does not rearm.
       org.robolectric.util.ReflectionHelpers.setField(reader, "running", false);
+    }
+  }
+
+  @Test
+  public void nativeDefaultSurvivesDialogsAndStopAndResumesAfterBackground() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).create()) {
+      MainActivity a = c.get();
+      assertTrue((Boolean) get(a, "nativeEnabled"));
+      assertTrue((Boolean) get(a, "nativeLive"));
+      NativeUartProbeTest.FakePort io = new NativeUartProbeTest.FakePort();
+      io.packet = NativeRadioInputTest.actualFrame();
+      io.repeat = true;
+      NativeRadioInput reader = new NativeRadioInput(io);
+      set(a, "nativeRadio", reader);
+      c.start().resume().visible();
+      assertTrue(io.entered.await(2, java.util.concurrent.TimeUnit.SECONDS));
+      set(a, "armedRequest", true);
+      a.onWindowFocusChanged(false);
+      assertFalse((Boolean) get(a, "armedRequest"));
+      assertTrue(reader.running());
+      assertEquals(0, io.closes);
+      Method stop = MainActivity.class.getDeclaredMethod("operatorStop");
+      stop.setAccessible(true);
+      stop.invoke(a);
+      assertTrue(reader.running()); // STOP stops actuators, not the input stream.
+      c.pause();
+      long end = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
+      while (reader.running() && System.nanoTime() < end) Thread.yield();
+      assertFalse(reader.running());
+      assertEquals(1, io.closes);
+      c.resume();
+      assertTrue(reader.running());
+      assertFalse((Boolean) get(a, "armedRequest"));
+      Method toggle = MainActivity.class.getDeclaredMethod("setNativeEnabled", boolean.class);
+      toggle.setAccessible(true);
+      toggle.invoke(a, false);
+      assertFalse(a.getSharedPreferences("ax12", 0).getBoolean("nativeEnabled", true));
+      c.recreate();
+      assertFalse((Boolean) get(c.get(), "nativeEnabled"));
+      assertFalse((Boolean) get(c.get(), "nativeLive"));
     }
   }
 }
