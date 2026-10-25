@@ -1,0 +1,86 @@
+{
+  "source_file": "RadioMasterAX.260908.apk",
+  "source_apk_sha256_reported_by_helper": "11ff890cef1febe720248d45858a6d670a90ccc6312ee1d71764ba3795af2a87",
+  "selected_file_hashes_verified": 15,
+  "native_library_sha256": "75ef3bcc49736e0b8b1fd1045c784adeca6b42e353585931a4480dc00141cafd",
+  "native_build_id": "cc9b3f8744bbb0245748dffabb4bc50a5aec1167",
+  "manifest": {
+    "package": "com.Flyshark.RadioMasterAX",
+    "versionName": "1.0",
+    "versionCode": 1,
+    "minSdk": 28,
+    "targetSdk": 34
+  },
+  "native_functions": {
+    "_Z11RcSrcGetRawi": {
+      "virtual_address": "0x19f1320",
+      "size": 240
+    },
+    "_Z8getValueiPb": {
+      "virtual_address": "0x1b2a97c",
+      "size": 108
+    },
+    "_Z13rcJoystickMapPiS_i": {
+      "virtual_address": "0x19f1410",
+      "size": 144
+    },
+    "_Z18luaGetValueAndPushP9lua_Statei": {
+      "virtual_address": "0x1b8db50",
+      "size": 128
+    },
+    "_Z18luaFindFieldByNamePKcR8LuaFieldj": {
+      "virtual_address": "0x1b8dbd0",
+      "size": 1560
+    },
+    "_ZN15AppRadioControl13getSrcCfgListEv": {
+      "virtual_address": "0x19c20b8",
+      "size": 504
+    },
+    "_ZN15AppRadioControl17umbusPackReceivedE14UMBUS_Msg_Pack": {
+      "virtual_address": "0x19c0d34",
+      "size": 2796
+    },
+    "_ZN10QCommUsart13openComByNameE7QString": {
+      "virtual_address": "0x19cf2d4",
+      "size": 396
+    },
+    "_ZN8QCommTcp11openConnectE7QStringi": {
+      "virtual_address": "0x19ce994",
+      "size": 380
+    }
+  },
+  "native_source_cache": {
+    "symbol": "RcSysSrcRaw",
+    "virtual_address": "0x1cff378",
+    "symbol_bytes": 92
+  },
+  "stock_qml_source_indices_zero_based": {
+    "rud": 0,
+    "ele": 1,
+    "thr": 2,
+    "ail": 3,
+    "S1": 12,
+    "S2": 13,
+    "SB": 21,
+    "SC": 22,
+    "SD": 23
+  },
+  "lua_alias_ids": {
+    "rud": 87,
+    "ele": 88,
+    "thr": 89,
+    "ail": 90,
+    "s1": 91,
+    "s2": 93,
+    "SB": 127,
+    "SC": 128,
+    "SD": 129
+  },
+  "lua_getValue_backend_observed_nonzero_source_cases": {
+    "ele": 88,
+    "thr": 89,
+    "ail": 90
+  },
+  "qt_resource_entries_extracted": 853,
+  "method": "Static manifest decoding, DEX decompilation, AArch64 disassembly, Qt resource extraction. No APK installation/execution or device I/O."
+}
