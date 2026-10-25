@@ -2,9 +2,11 @@
 
 ## AX12 single-leg integration — new test build
 
+APK v0.5.0 adds a Jumping Flash–inspired flight deck, simplified single-leg Controls, Pit Tools for advanced/legacy setup and guided service-filtered Bluetooth connection. Android pairing automatically continues the original connection request; Disconnect cancels it. Last robot is remembered for one-tap manual reconnect. Firmware/limits are unchanged. [Previews and flow](AX12-UI-v0.5.md). Build, lint and56 Android tests pass; physical BLE acceptance is pending.
+
 APK v0.4.1 makes internal inputs default-on with a remembered OFF switch, no repeated confirmation checkbox, continuous reading across focus dialogs/STOP, and automatic foreground resume. Backgrounding still disarms/closes BLE; input recovery never automatically rearms. Stick v0.1 is unchanged.
 
-APK v0.4.1 and AX12SingleLeg v0.1 implement cable-free internal AX12 inputs and a matching Stick BLE peripheral for the one-motor rig. Manual reference, 0..80° travel, 1 A / 1 rad/s, neutral active hold and the tested CAN watchdog are preserved. SB disarms/arms; elevator moves the leg. No spinner, SD jump, height actuation or gait output. BLE/input loss clears motion and requires an SB disarmed cycle. Compiled/host-tested; this BLE pair awaits physical acceptance. See [install and test procedure](AX12-SINGLE-LEG.md). Existing MotorRecovery v0.16 remains the gamepad baseline.
+APK v0.5.0 and AX12SingleLeg v0.1 implement cable-free internal AX12 inputs and a matching Stick BLE peripheral for the one-motor rig. Manual reference, 0..80° travel, 1 A / 1 rad/s, neutral active hold and the tested CAN watchdog are preserved. SB disarms/arms; elevator moves the leg. No spinner, SD jump, height actuation or gait output. BLE/input loss clears motion and requires an SB disarmed cycle. Compiled/host-tested; this BLE pair awaits physical acceptance. See [install and test procedure](AX12-SINGLE-LEG.md). Existing MotorRecovery v0.16 remains the gamepad baseline.
 
 ## Verified on the user's bench
 

@@ -505,4 +505,41 @@ public class ActivityTest {
       assertFalse((Boolean) get(c.get(), "nativeLive"));
     }
   }
+
+  @Test
+  public void missionPanelShowsStoppingUntilRobotConfirmsAndFaultsStayVisible() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity a = c.get();
+      ((BleLink) get(a, "ble")).ready = true;
+      org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(1));
+      set(a, "telemetryAt", android.os.SystemClock.elapsedRealtime());
+      set(a, "robotFlags", 7);
+      set(a, "armedRequest", false);
+      Method render = MainActivity.class.getDeclaredMethod("render");
+      render.setAccessible(true);
+      render.invoke(a);
+      assertTrue(
+          ((android.widget.TextView) get(a, "headline")).getText().toString().contains("STOPPING"));
+      assertTrue(
+          ((android.widget.TextView) get(a, "missionStatus"))
+              .getText()
+              .toString()
+              .contains("STOPPING"));
+      set(a, "robotFlags", 15);
+      render.invoke(a);
+      assertTrue(
+          ((android.widget.TextView) get(a, "missionStatus"))
+              .getText()
+              .toString()
+              .contains("FAULT"));
+      set(a, "robotFlags", 3);
+      render.invoke(a);
+      assertTrue(
+          ((android.widget.TextView) get(a, "missionStatus"))
+              .getText()
+              .toString()
+              .contains("DISARMED"));
+    }
+  }
 }

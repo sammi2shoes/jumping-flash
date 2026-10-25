@@ -17,6 +17,143 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   private boolean nativeEnabled = true;
   private Button nativeToggle;
   private TextView nativeLiveStatus;
+  private MissionView mission;
+  private TextView missionStatus, missionDetails, connectionSteps;
+  private LinearLayout robotCards;
+  private Button disconnectButton;
+  private final Map<String, Button> robotButtons = new HashMap<>();
+  private final Set<String> shownRobots = new HashSet<>();
+  private Runnable pendingBluetoothAction;
+
+  private int dp(float value) {
+    return (int) (value * getResources().getDisplayMetrics().density + .5f);
+  }
+
+  private android.graphics.drawable.GradientDrawable surface(int fill, int stroke, int radius) {
+    android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
+    g.setColor(fill);
+    g.setCornerRadius(dp(radius));
+    if (stroke != 0) g.setStroke(dp(1), stroke);
+    return g;
+  }
+
+  private void paintButton(Button b, int fill, int ink) {
+    b.setBackground(surface(fill, 0, 12));
+    b.setTextColor(ink);
+  }
+
+  private LinearLayout card() {
+    LinearLayout c = new LinearLayout(this);
+    c.setOrientation(LinearLayout.VERTICAL);
+    c.setPadding(dp(14), dp(10), dp(14), dp(10));
+    c.setBackground(surface(Color.WHITE, Color.rgb(205, 225, 243), 18));
+    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+    lp.setMargins(dp(4), dp(5), dp(4), dp(5));
+    c.setLayoutParams(lp);
+    return c;
+  }
+
+  private boolean prepareBluetooth(Runnable continuation) {
+    try {
+      pendingBluetoothAction = continuation;
+      if (!ble.permissions()) return false;
+      android.bluetooth.BluetoothManager manager =
+          (android.bluetooth.BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
+      android.bluetooth.BluetoothAdapter adapter = manager == null ? null : manager.getAdapter();
+      if (adapter == null) {
+        pendingBluetoothAction = null;
+        linkStatus = "Bluetooth is unavailable on this device";
+        render();
+        return false;
+      }
+      if (!adapter.isEnabled()) {
+        startActivityForResult(
+            new Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE), 11);
+        return false;
+      }
+      pendingBluetoothAction = null;
+      return true;
+    } catch (SecurityException denied) {
+      pendingBluetoothAction = null;
+      linkStatus = "Bluetooth permission was revoked. Tap Find my Stick to grant it again.";
+      render();
+      return false;
+    }
+  }
+
+  private void findRobot() {
+    if (nativeProbeMode) {
+      toast("Exit the passive probe before connecting");
+      return;
+    }
+    if (!prepareBluetooth(this::findRobot)) return;
+    android.location.LocationManager lm =
+        (android.location.LocationManager) getSystemService(LOCATION_SERVICE);
+    if (Build.VERSION.SDK_INT < 31 && lm != null && !lm.isLocationEnabled()) {
+      pendingBluetoothAction = this::findRobot;
+      linkStatus = "Android needs Location ON for Bluetooth discovery";
+      startActivityForResult(
+          new Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS), 12);
+      return;
+    }
+    disarm("Looking for Stick; robot remains disabled");
+    devices.clear();
+    shownRobots.clear();
+    robotButtons.clear();
+    if (robotCards != null) robotCards.removeAllViews();
+    ble.scan();
+  }
+
+  private void connectRobot(BluetoothDevice d) {
+    if (nativeProbeMode || demo) {
+      toast("Return to live inputs before connecting the robot");
+      return;
+    }
+    if (!prepareBluetooth(() -> connectRobot(d))) return;
+    disarm("Connecting to Stick; select SB DISARMED before arming");
+    telemetryAt = 0;
+    telemetrySeq = -1;
+    session = 1 + new java.security.SecureRandom().nextInt(65535);
+    prefs.edit().putString("lastRobot", d.getAddress()).apply();
+    ble.connect(d);
+  }
+
+  private void reconnectRobot() {
+    if (!prepareBluetooth(this::reconnectRobot)) return;
+    String address = prefs.getString("lastRobot", "");
+    if (address.isEmpty()) {
+      findRobot();
+      return;
+    }
+    android.bluetooth.BluetoothManager m =
+        (android.bluetooth.BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
+    try {
+      connectRobot(m.getAdapter().getRemoteDevice(address));
+    } catch (IllegalArgumentException e) {
+      prefs.edit().remove("lastRobot").apply();
+      findRobot();
+    }
+  }
+
+  private void showRobotCard(BluetoothDevice d) {
+    try {
+      if (robotCards == null) return;
+      String address = d.getAddress();
+      if (!shownRobots.add(address)) return;
+      String name = d.getName() == null ? "Jumping Flash Stick" : d.getName();
+      LinearLayout c = card();
+      c.addView(text(name, 21));
+      c.addView(text("Compatible Stick • " + address, 13));
+      Button connect = button("Connect this Stick  →", () -> connectRobot(d));
+      paintButton(connect, Color.rgb(255, 214, 64), TEXT);
+      c.addView(connect);
+      robotCards.addView(c);
+    } catch (SecurityException denied) {
+      linkStatus = "Bluetooth permission was revoked. Tap Find my Stick to grant it again.";
+      render();
+    }
+  }
+
   private int nativeResumeGeneration = 0;
 
   private void setNativeEnabled(boolean enabled) {
@@ -163,10 +300,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       lastRender = 0,
       lastInputLog = 0;
   private int inputEvents = 0, txCount = 0, rxCount = 0, badFrames = 0, lastFaults = 0;
-  private static final int BG = Color.rgb(15, 21, 31),
-      PANEL = Color.rgb(26, 35, 49),
-      TEXT = Color.rgb(230, 237, 245),
-      ACCENT = Color.rgb(61, 215, 183);
+  private static final int BG = Color.rgb(232, 246, 255),
+      PANEL = Color.rgb(255, 255, 255),
+      TEXT = Color.rgb(25, 45, 91),
+      ACCENT = Color.rgb(20, 145, 122);
   private int enableAxis = -1, cycleAxis = -1;
   private boolean enableAxisLow = false, cycleAxisLow = false, cycleAxisWasHeld = false;
 
@@ -184,49 +321,86 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void radioDashboard() {
-    summary = text("", 18);
-    body.addView(summary);
-    body.addView(
-        nativeToggle =
-            button(
-                nativeEnabled ? "Internal inputs ON • turn OFF" : "Internal inputs OFF • turn ON",
-                () -> {
-                  setNativeEnabled(!nativeEnabled);
-                  showTab(0);
-                }));
-    sticks = new StickView();
-    body.addView(sticks, new LinearLayout.LayoutParams(-1, 160));
-    radioInfo = text("", 16);
-    body.addView(radioInfo);
-    modeLabel =
+    LinearLayout layout = row();
+    layout.setPadding(0, dp(8), 0, 0);
+    mission = new MissionView(this);
+    LinearLayout.LayoutParams art = new LinearLayout.LayoutParams(0, dp(300), 1.25f);
+    art.setMargins(0, 0, dp(10), 0);
+    layout.addView(mission, art);
+    LinearLayout status = card();
+    status.addView(text("SINGLE LEG / FLIGHT DECK", 13));
+    missionStatus = text("STANDBY", 26);
+    status.addView(missionStatus);
+    missionDetails = text("", 16);
+    status.addView(missionDetails);
+    Button connect = button("Robot connection  →", () -> showTab(2));
+    paintButton(connect, Color.rgb(255, 214, 64), TEXT);
+    status.addView(connect);
+    modeLabel = text("", 15);
+    status.addView(modeLabel);
+    layout.addView(status, new LinearLayout.LayoutParams(0, -2, 1));
+    body.addView(layout);
+    LinearLayout strip = card();
+    strip.addView(
         text(
-            "SB controls arming • SC selects movement style • SD toggles request full-power jump",
-            16);
-    body.addView(modeLabel);
-    body.addView(
+            "ELEVATOR  Move the leg     •     NEUTRAL  Hold position     •     SB  Disarm / arm",
+            16));
+    nativeToggle =
         button(
-            "Disarm / cancel pending jump",
+            nativeEnabled ? "Internal inputs ON • turn OFF" : "Internal inputs OFF • turn ON",
             () -> {
-              disarm("Operator STOP; cycle SB to disarmed before rearming");
-              sendFrame();
-            }));
-    body.addView(
-        text(
-            "CH3 spinner throttle is blocked in SB disarmed/drive-only. Enter full arm with"
-                + " throttle low. SD triggers on either edge in either armed state, in any movement"
-                + " style. No jump is queued while disarmed or disconnected. Robot firmware must"
-                + " implement the requested actions.",
-            14));
-    body.addView(
-        button(
-            demo ? "Exit DEMO" : "Enter DEMO • inputs only / no robot output",
-            () -> {
-              disarm("Demo changed");
-              ble.close();
-              demo = !demo;
-              linkStatus = demo ? "DEMO — inputs only" : "Disconnected";
+              setNativeEnabled(!nativeEnabled);
               showTab(0);
-            }));
+            });
+    strip.addView(nativeToggle);
+    body.addView(strip);
+  }
+
+  private void operatorControls() {
+    body.addView(text("YOUR CONTROLLER", 24));
+    body.addView(text("One leg today. The full robot profile stays ready for later.", 15));
+    LinearLayout c = card();
+    c.addView(text("SB  •  ARM SELECTOR", 18));
+    c.addView(
+        text(
+            "DISARMED → LEG ARMED → FULL ARM selection\n"
+                + "The current rig only powers the leg. Spinner and jump outputs are unavailable.",
+            15));
+    c.addView(text("ELEVATOR  •  EXTEND / RETRACT", 18));
+    c.addView(
+        text(
+            "Neutral holds position. Travel 0–80° at 1 A / 1 rad/s. Set retracted zero using Stick"
+                + " B held for 2 seconds while disarmed.",
+            15));
+    body.addView(c);
+    LinearLayout directions = card();
+    directions.addView(text("CONTROL DIRECTION", 18));
+    for (int role : new int[] {RadioProfile.ELEVATOR, RadioProfile.AILERON, RadioProfile.SB}) {
+      final int r = role;
+      CheckBox reverse = new CheckBox(this);
+      reverse.setText(RadioProfile.LABELS[r] + " • reverse");
+      reverse.setTextColor(TEXT);
+      reverse.setChecked(radio.binding[r].inverted);
+      reverse.setOnCheckedChangeListener(
+          (v, on) -> {
+            disarm("Control direction changed; select SB DISARMED");
+            radio.binding[r].inverted = on;
+            saveRadio();
+          });
+      directions.addView(reverse);
+    }
+    body.addView(directions);
+    LinearLayout future = card();
+    future.addView(text("MONITORED FOR THE FUTURE", 18));
+    future.addView(
+        text(
+            "CH3 throttle / spinner • S2 standing height\n"
+                + "SC movement style • SD jump switch\n"
+                + "These inputs do not trigger those actions on the single-leg firmware.",
+            15));
+    radioInfo = text("", 14);
+    future.addView(radioInfo);
+    body.addView(future);
   }
 
   private void radioControls() {
@@ -670,6 +844,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
               public void found(BluetoothDevice d) {
                 try {
                   devices.put(d.getAddress(), d);
+                  showRobotCard(d);
                 } catch (SecurityException ignored) {
                 }
               }
@@ -702,7 +877,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       selectNativeInputs();
     } else detectInput();
     showTab(0);
-    log("AX12 app 0.4.1. Named RC profile; robot-side spinner/jump outputs not implemented.");
+    log("AX12 app 0.5.0. Named RC profile; robot-side spinner/jump outputs not implemented.");
     handler.post(pump);
   }
 
@@ -717,7 +892,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     t.setText(s);
     t.setTextColor(TEXT);
     t.setTextSize(size);
-    t.setPadding(8, 6, 8, 6);
+    t.setPadding(dp(6), dp(5), dp(6), dp(5));
+    t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
     return t;
   }
 
@@ -725,6 +901,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     Button b = new Button(this);
     b.setText(s);
     b.setAllCaps(false);
+    b.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+    b.setTextSize(14);
+    b.setMinHeight(dp(44));
+    paintButton(b, TEXT, Color.WHITE);
     b.setOnClickListener(v -> action.run());
     return b;
   }
@@ -747,6 +927,12 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     nativeOwnerCheck = null;
     nativeToggle = null;
     nativeLiveStatus = null;
+    mission = null;
+    missionStatus = missionDetails = connectionSteps = null;
+    robotCards = null;
+    disconnectButton = null;
+    robotButtons.clear();
+    shownRobots.clear();
     LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
     root.setFitsSystemWindows(true);
@@ -755,14 +941,21 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     LinearLayout top = row();
     headline = text("JUMPING FLASH  •  AX12", 20);
     top.addView(headline, new LinearLayout.LayoutParams(0, -2, 1));
-    top.addView(button("STOP", this::operatorStop));
+    Button stop = button("■  STOP", this::operatorStop);
+    paintButton(stop, Color.rgb(215, 53, 73), Color.WHITE);
+    top.addView(stop);
     root.addView(top);
     LinearLayout nav = row();
-    addButton(nav, "Drive", () -> showTab(0));
-    addButton(nav, "Controls", () -> showTab(1));
-    addButton(nav, "Bluetooth", () -> showTab(2));
-    addButton(nav, "Diagnostics", () -> showTab(3));
-    addButton(nav, "Native inputs", () -> showTab(4));
+    String[] tabs = {"01  FLIGHT DECK", "02  CONNECT", "03  CONTROLS", "04  TOOLS"};
+    int[] pages = {0, 2, 1, 3};
+    for (int i = 0; i < tabs.length; i++) {
+      final int page = pages[i];
+      Button b = button(tabs[i], () -> showTab(page));
+      paintButton(b, page == which ? TEXT : Color.WHITE, page == which ? Color.WHITE : TEXT);
+      LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(44), 1);
+      lp.setMargins(dp(3), dp(5), dp(3), dp(8));
+      nav.addView(b, lp);
+    }
     root.addView(nav);
     ScrollView scroll = new ScrollView(this);
     body = new LinearLayout(this);
@@ -773,7 +966,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     summary = linkLabel = rawView = calLabel = modeLabel = null;
     sticks = null;
     if (which == 0) dashboard();
-    if (which == 1) controls();
+    if (which == 1) operatorControls();
     if (which == 2) connections();
     if (which == 3) diagnostics();
     if (which == 4) nativeInputPage();
@@ -1058,43 +1251,48 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void connections() {
+    body.addView(text("LET’S LINK UP", 28));
+    body.addView(text("Power on the Stick. Its screen should say AX12 SINGLE LEG.", 16));
+    LinearLayout c = card();
+    connectionSteps = text("01 FIND     →     02 PAIR     →     03 CONNECTED", 18);
+    c.addView(connectionSteps);
     linkLabel = text("", 16);
-    body.addView(linkLabel);
-    body.addView(
+    c.addView(linkLabel);
+    LinearLayout actions = row();
+    Button find = button("Find my Stick", this::findRobot);
+    paintButton(find, Color.rgb(255, 214, 64), TEXT);
+    actions.addView(find, new LinearLayout.LayoutParams(0, -2, 1));
+    if (!prefs.getString("lastRobot", "").isEmpty())
+      addButton(actions, "Reconnect last Stick", this::reconnectRobot);
+    disconnectButton =
+        button(
+            "Disconnect",
+            () -> {
+              disarm("Operator disconnected");
+              sendFrame();
+              ble.close();
+            });
+    actions.addView(disconnectButton, new LinearLayout.LayoutParams(0, -2, 1));
+    c.addView(actions);
+    body.addView(c);
+    body.addView(text("YOUR ROBOT", 16));
+    robotCards = new LinearLayout(this);
+    robotCards.setOrientation(LinearLayout.VERTICAL);
+    body.addView(robotCards);
+    for (BluetoothDevice d : devices.values()) showRobotCard(d);
+    LinearLayout help = card();
+    help.addView(text("WHAT HAPPENS NEXT", 17));
+    help.addView(
         text(
-            "This APK uses the Jumping Flash BLE service. MotorRecovery v0.16 uses Bluepad32 HID"
-                + " and cannot connect to this protocol. A companion Stick firmware build is still"
-                + " required. Pairing alone never enables motors.",
-            16));
-    LinearLayout r = row();
-    addButton(
-        r,
-        "Scan BLE",
-        () -> {
-          if (nativeProbeMode) {
-            toast("Exit native probe mode first");
-            return;
-          }
-          if (demo) {
-            toast("Exit demo first");
-            return;
-          }
-          devices.clear();
-          ble.scan();
-        });
-    addButton(r, "Choose discovered device", this::chooseBle);
-    addButton(
-        r,
-        "Disconnect",
-        () -> {
-          disarm("Manual disconnect");
-          sendFrame();
-          ble.close();
-        });
-    body.addView(r);
+            "Tap your robot when it appears. If Android asks to pair, accept; we’ll finish"
+                + " connecting automatically. Connecting never arms the leg.\n"
+                + "Once linked: inputs ON → SB DISARMED → set retracted zero with Stick B → select"
+                + " LEG ARMED.",
+            15));
+    body.addView(help);
     body.addView(
         button(
-            "Android Bluetooth settings",
+            "Bluetooth settings",
             () -> startActivity(new Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))));
   }
 
@@ -1291,6 +1489,60 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void diagnostics() {
+    body.addView(text("PIT TOOLS", 26));
+    body.addView(text("Setup and troubleshooting live here. Nothing here arms the robot.", 15));
+    LinearLayout c = card();
+    c.addView(text("INTERNAL RADIO INPUT", 18));
+    nativeToggle =
+        button(
+            nativeEnabled ? "Internal inputs ON • turn OFF" : "Internal inputs OFF • turn ON",
+            () -> {
+              setNativeEnabled(!nativeEnabled);
+              showTab(3);
+            });
+    c.addView(nativeToggle);
+    nativeLiveStatus = text(nativeRadio.status(), 14);
+    c.addView(nativeLiveStatus);
+    c.addView(
+        button(
+            "Retry input connection",
+            () -> {
+              setNativeEnabled(true);
+              showTab(3);
+            }));
+    body.addView(c);
+    body.addView(
+        button(
+            "Export session log",
+            () -> {
+              Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+              i.setType("text/plain");
+              i.putExtra(Intent.EXTRA_TITLE, "jumping-flash-ax12-log.txt");
+              i.addCategory(Intent.CATEGORY_OPENABLE);
+              startActivityForResult(i, 30);
+            }));
+    body.addView(
+        button(
+            "Detailed input calibration",
+            () -> {
+              showTab(1);
+              body.removeAllViews();
+              radioControls();
+              render();
+            }));
+    body.addView(
+        button(
+            "Live diagnostics and logs",
+            () -> {
+              showTab(3);
+              body.removeAllViews();
+              legacyDiagnostics();
+              render();
+            }));
+    body.addView(button("Advanced serial probe / stock app setup", () -> showTab(4)));
+  }
+
+  private void legacyDiagnostics() {
     body.addView(
         text(
             "Dial probe: tap Reset input trace, turn ONLY S1/S2 through their travel, then export"
@@ -1798,13 +2050,17 @@ public final class MainActivity extends Activity implements InputManager.InputDe
 
   private void render() {
     if (headline == null) return;
+    boolean actualRun = freshTelemetry() && (robotFlags & 4) != 0;
+    boolean actualFault = freshTelemetry() && ((robotFlags & 8) != 0 || lastFaults != 0);
     headline.setText(
-        demo
-            ? "JUMPING FLASH  •  DEMO / NO OUTPUT"
-            : "JUMPING FLASH  •  AX12  /  "
-                + (armedRequest && freshTelemetry() && (robotFlags & 4) != 0
-                    ? "ARMED"
-                    : "DISARMED"));
+        "JUMPING FLASH  /  AX12  •  "
+            + (demo
+                ? "DEMO / NO OUTPUT"
+                : actualFault
+                    ? "FAULT"
+                    : actualRun
+                        ? armedRequest ? "LEG ARMED" : "STOPPING"
+                        : freshTelemetry() ? "DISARMED" : "STANDBY"));
     if (summary != null)
       summary.setText(
           deviceName
@@ -1833,11 +2089,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                   : "not available on connected firmware"));
     if (linkLabel != null)
       linkLabel.setText(
-          linkStatus
-              + "\nDiscovered BLE devices: "
-              + devices.size()
-              + "   Compatible telemetry: "
-              + (freshTelemetry() ? "fresh" : "absent/stale"));
+          linkStatus + (freshTelemetry() ? "\nRobot online. Arming stays under SB control." : ""));
     if (calLabel != null)
       calLabel.setText(
           calibrating
@@ -1912,6 +2164,95 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     if (nativeProbeMode) headline.setText("NATIVE PROBE • ROBOT OUTPUT BLOCKED");
     if (nativeProbeView != null && nativeProbe != null)
       nativeProbeView.setText(nativeProbe.snapshot());
+    if (mission != null) {
+      boolean linked = freshTelemetry(), active = linked && (robotFlags & 4) != 0;
+      mission.linked = linked;
+      mission.referenced = linked && (robotFlags & 2) != 0;
+      mission.armed = active;
+      mission.fault = actualFault;
+      mission.stopping = active && !armedRequest;
+      mission.degrees = leftDeg;
+      mission.invalidate();
+      missionStatus.setText(
+          actualFault
+              ? "ROBOT FAULT"
+              : active
+                  ? (armedRequest ? "LEG ARMED" : "STOPPING")
+                  : linked ? "LINKED / DISARMED" : "LET’S GET CONNECTED");
+      missionStatus.setTextColor(actualFault ? Color.rgb(215, 53, 73) : active ? ACCENT : TEXT);
+      missionDetails.setText(
+          "ROBOT  "
+              + (linked
+                  ? "Connected"
+                  : ble.pairing()
+                      ? "Pairing…"
+                      : ble.ready ? "Waiting for telemetry" : "Not connected")
+              + "\nINPUTS  "
+              + (liveInputFresh() ? "Live" : nativeEnabled ? "Waiting for radio" : "Switched OFF")
+              + "\nZERO  "
+              + (linked
+                  ? ((robotFlags & 2) != 0 ? "Set" : "Set retracted pose with B")
+                  : "Connect robot first")
+              + "\nBATTERY  "
+              + (linked && volts > 0 ? String.format(Locale.US, "%.1f V", volts) : "—"));
+      modeLabel.setText(
+          "SB  "
+              + (radioState.sb < 0
+                  ? "Waiting for input"
+                  : radioState.sb == 0
+                      ? "DISARMED"
+                      : radioState.sb == 1 ? "LEG ARMED selected" : "FULL ARM selected / leg only")
+              + "\n"
+              + (actualFault
+                  ? "Motor fault. Keep SB DISARMED and inspect the rig."
+                  : !liveInputFresh()
+                      ? "Waiting for internal radio input. See Pit Tools if this persists."
+                      : !linked
+                          ? "Find your Stick on CONNECT."
+                          : (robotFlags & 2) == 0
+                              ? "Retract the leg; hold Stick B for 2 seconds with SB DISARMED."
+                              : active
+                                  ? "Neutral holds. SB DISARMED stops."
+                                  : radioState.sb == 0
+                                      ? "Ready. Center gimbals, then select LEG ARMED."
+                                      : lastReason));
+    }
+    if (tab == 1 && rawView == null && radioInfo != null)
+      radioInfo.setText(
+          "Throttle "
+              + percent(radioState.throttle)
+              + "   •   Height dial "
+              + percent(radioState.height)
+              + "\nSC "
+              + (radioState.sc < 0 ? "Waiting" : RadioProfile.STYLE_NAMES[radioState.sc])
+              + "   •   SD "
+              + (radioState.sd < 0 ? "Waiting" : radioState.sd == 0 ? "Low" : "High"));
+    if (disconnectButton != null)
+      disconnectButton.setVisibility(
+          ble.ready || ble.pairing() || ble.connecting() ? View.VISIBLE : View.GONE);
+    for (Map.Entry<String, Button> item : robotButtons.entrySet()) {
+      boolean chosen = item.getKey().equals(prefs.getString("lastRobot", ""));
+      boolean active = chosen && (ble.ready || ble.pairing() || ble.connecting());
+      item.getValue().setEnabled(!active);
+      item.getValue()
+          .setText(
+              active
+                  ? (ble.ready ? "✓  Connected" : ble.pairing() ? "Pairing…" : "Connecting…")
+                  : "Connect this Stick  →");
+    }
+    if (connectionSteps != null)
+      connectionSteps.setText(
+          freshTelemetry()
+              ? "✓  STICK CONNECTED"
+              : ble.pairing()
+                  ? "02  PAIRING • ACCEPT ANDROID PROMPT"
+                  : ble.ready
+                      ? "03  WAITING FOR ROBOT STATUS"
+                      : ble.connecting()
+                          ? "03  CONNECTING TO YOUR STICK…"
+                          : ble.scanning
+                              ? "01  SEARCHING FOR YOUR STICK…"
+                              : "01  FIND     →     02  PAIR     →     03  CONNECTED");
     if (sticks != null) sticks.invalidate();
   }
 
@@ -1930,6 +2271,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     cycleAxisWasHeld = true;
     disarm("Foreground resumed; deliberate rearm required");
     detectInput();
+    ble.resume();
     if (nativeEnabled && !nativeProbeMode) resumeNativeInputs(++nativeResumeGeneration, 0);
   }
 
@@ -1943,7 +2285,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     disarm("App left foreground");
     sendFrame();
     keys.clear();
-    ble.close();
+    ble.pause();
     super.onPause();
   }
 
@@ -1968,7 +2310,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     if (nativeRadio != null) nativeRadio.stop();
     handler.removeCallbacksAndMessages(null);
     ((InputManager) getSystemService(INPUT_SERVICE)).unregisterInputDeviceListener(this);
-    ble.close();
+    ble.destroy();
     super.onDestroy();
   }
 
@@ -1999,13 +2341,47 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   @Override
+  public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
+    super.onRequestPermissionsResult(request, permissions, results);
+    if (request == 10) {
+      Runnable action = pendingBluetoothAction;
+      pendingBluetoothAction = null;
+      boolean granted = results.length > 0;
+      for (int result : results)
+        granted &= result == android.content.pm.PackageManager.PERMISSION_GRANTED;
+      if (granted && action != null) action.run();
+      else {
+        linkStatus =
+            "Bluetooth permission is needed to find your Stick. Tap Find my Stick to try again.";
+        render();
+      }
+    }
+  }
+
+  @Override
   protected void onActivityResult(int request, int result, Intent data) {
     super.onActivityResult(request, result, data);
+    if (request == 11 || request == 12) {
+      Runnable action = pendingBluetoothAction;
+      pendingBluetoothAction = null;
+      boolean accepted =
+          request == 11
+              ? result == RESULT_OK
+              : ((android.location.LocationManager) getSystemService(LOCATION_SERVICE))
+                  .isLocationEnabled();
+      if (accepted && action != null) action.run();
+      else {
+        linkStatus =
+            "Enable Bluetooth and Android Location to find your Stick, then tap Find my Stick.";
+        render();
+      }
+      return;
+    }
     if (request == 30 && result == RESULT_OK && data != null) {
       try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
         if (out == null) throw new IOException("No output stream");
         String header =
-            "Jumping Flash AX12 0.4.1\nNamed profile "
+            "Jumping Flash AX12 0.5.0\nNamed profile "
                 + radioMappingText()
                 + "\nDevice "
                 + deviceName

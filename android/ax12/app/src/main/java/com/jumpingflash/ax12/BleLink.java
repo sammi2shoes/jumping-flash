@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.*;
 import android.bluetooth.le.*;
+import android.content.*;
 import android.content.pm.PackageManager;
 import android.os.*;
 import java.util.*;
@@ -30,10 +31,78 @@ public final class BleLink {
   public long writeAt = 0;
   private int generation = 0;
   private int scanGeneration = 0;
+  public boolean scanning = false;
+  private BluetoothDevice pendingPair;
+  private boolean suspended = false;
+  private final BroadcastReceiver bonds =
+      new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+          if (!BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(intent.getAction())) return;
+          BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+          int state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR);
+          bondChanged(device, state);
+        }
+      };
+
+  public boolean connecting() {
+    return gatt != null && !ready;
+  }
+
+  public boolean pairing() {
+    return pendingPair != null;
+  }
+
+  void bondChanged(BluetoothDevice device, int state) {
+    try {
+      if (device == null || pendingPair == null || !device.equals(pendingPair)) return;
+      if (state == BluetoothDevice.BOND_BONDED
+          && device.getBondState() == BluetoothDevice.BOND_BONDED) {
+        if (!suspended) {
+          BluetoothDevice selected = pendingPair;
+          pendingPair = null;
+          connect(selected);
+        }
+      } else if (state == BluetoothDevice.BOND_NONE) {
+        pendingPair = null;
+        listener.status("Pairing cancelled. Tap your Stick to try again.");
+      }
+    } catch (SecurityException denied) {
+      pendingPair = null;
+      listener.status("Bluetooth permission was revoked. Grant permission and retry.");
+    }
+  }
+
+  public void pause() {
+    BluetoothDevice selected = pendingPair;
+    close();
+    suspended = true;
+    pendingPair = selected;
+    if (selected != null)
+      listener.status("Finish Android pairing. Connection continues when you return.");
+  }
+
+  public void resume() {
+    suspended = false;
+    try {
+      if (pendingPair != null) bondChanged(pendingPair, pendingPair.getBondState());
+    } catch (SecurityException denied) {
+      pendingPair = null;
+      listener.status("Bluetooth permission was revoked. Grant permission and retry.");
+    }
+  }
+
+  public void destroy() {
+    close();
+    activity.unregisterReceiver(bonds);
+  }
 
   public BleLink(Activity a, Listener l) {
     activity = a;
     listener = l;
+    IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+    if (Build.VERSION.SDK_INT >= 33) a.registerReceiver(bonds, filter, Context.RECEIVER_EXPORTED);
+    else a.registerReceiver(bonds, filter);
   }
 
   public boolean permissions() {
@@ -60,12 +129,19 @@ public final class BleLink {
       new ScanCallback() {
         @Override
         public void onScanResult(int type, ScanResult r) {
-          handler.post(() -> listener.found(r.getDevice()));
+          handler.post(
+              () -> {
+                if (scanning) listener.found(r.getDevice());
+              });
         }
 
         @Override
         public void onScanFailed(int error) {
-          handler.post(() -> listener.status("Scan failed: " + error));
+          handler.post(
+              () -> {
+                scanning = false;
+                listener.status("Search failed (" + error + "). Tap Find Stick to retry.");
+              });
         }
       };
 
@@ -83,27 +159,33 @@ public final class BleLink {
       return;
     }
     try {
+      scanning = true;
       scanner.startScan(
-          null,
+          Collections.singletonList(
+              new ScanFilter.Builder().setServiceUuid(new ParcelUuid(Protocol.SERVICE)).build()),
           new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
           scanCallback);
-      listener.status("Scanning BLE devices for 10 seconds…");
+      listener.status("Searching for Jumping Flash Sticks…");
       int scanToken = scanGeneration;
       handler.postDelayed(
           () -> {
             if (scanToken == scanGeneration) {
               stopScan();
-              listener.status("Scan finished. Choose a discovered device.");
+              listener.status(
+                  "Search complete. Tap your Stick below. If none appeared, check its power and"
+                      + " AX12 firmware.");
             }
           },
           10000);
     } catch (SecurityException | IllegalStateException e) {
-      listener.status("Scan unavailable: " + e.getMessage());
+      scanning = false;
+      listener.status("Search unavailable: " + e.getMessage());
     }
   }
 
   public void stopScan() {
     ++scanGeneration;
+    scanning = false;
     if (scanner != null) {
       try {
         scanner.stopScan(scanCallback);
@@ -117,16 +199,19 @@ public final class BleLink {
     if (!permissions()) return;
     disconnect();
     stopScan();
+    suspended = false;
     int token = ++generation;
     listener.status("Connecting; motor commands remain disarmed.");
     try {
       if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
+        pendingPair = device;
         if (device.getBondState() == BluetoothDevice.BOND_NONE && !device.createBond()) {
-          listener.status("Pairing could not start. Pair JumpingFlash-Leg in Bluetooth settings.");
+          pendingPair = null;
+          listener.status("Pairing could not start. Tap your Stick to retry.");
         } else
           listener.status(
-              "Complete Android pairing, then choose Connect again. No automatic connection or"
-                  + " arm.");
+              "Complete Android pairing. The app will continue connecting; this never requests"
+                  + " robot arming.");
         return;
       }
       gatt =
@@ -269,6 +354,7 @@ public final class BleLink {
   }
 
   public void disconnect() {
+    pendingPair = null;
     ++generation;
     ready = false;
     busy = false;

@@ -1,17 +1,17 @@
-# AX12 single-leg BLE test — APK v0.4.1 / Stick v0.1
+# AX12 single-leg BLE test — APK v0.5.0 / Stick v0.1
 
 This pair replaces the 8BitDo input path for the current **one-motor test rig**. Use M5StickC **Plus2**, MiniCAN TX32/RX33, RS05 CAN2.0 firmware0.5.0.14, motorID1/host126, 1Mbps extended CAN. MotorRecovery v0.16 remains available for the old gamepad path. This new BLE integration is compiled and simulated, **not yet verified on the physical AX12/Stick/motor combination**.
 
 ## Downloads and install
 
-- [APK v0.4.1](../releases/JumpingFlash-AX12-v0.4.1.apk) updates the existing development-signed app in place.
+- [APK v0.5.0](../releases/JumpingFlash-AX12-v0.5.0.apk) updates the existing development-signed app in place.
 - [Stick package v0.1](../releases/AX12SingleLeg-v0.1.zip) includes a ready-to-flash merged binary, Arduino sketch, and these instructions.
 
 The easiest Stick install uses the included merged binary and Python (close Arduino Serial Monitor first). In PowerShell opened in the extracted package folder:
 
 ```powershell
-py -m pip install esptool
-py -m esptool --chip esp32 --port COM3 --baud 460800 write_flash 0x0 AX12SingleLeg-v0.1-factory.bin
+py -3.13 -m pip install esptool
+py -3.13 -m esptool --chip esp32 --port COM3 --baud 460800 write_flash 0x0 AX12SingleLeg-v0.1-factory.bin
 ```
 
 Replace COM3 with the **Stick's** port, not the USB-CAN adapter. The merged image contains bootloader, huge-app partition table, boot selector and application at the correct offsets. Do not write this merged image at0x10000. Flashing/rebooting the Stick requires manually referencing the leg again; there is no automatic reference restoration from flash.
@@ -22,13 +22,13 @@ Arduino IDE alternative: open the included `AX12SingleLeg/AX12SingleLeg.ino`. Us
 
 1. Keep SB at the position the dashboard labels **DISARMED**, gimbals centered, throttle off. Initialize the stock RadioMasterAX app once, then Force stop it in Android app settings. Remove the DSC-to-USB workaround cable. Do not reopen RadioMasterAX while our reader owns the port.
 2. Power/flash the Stick; Serial Monitor115200 should identify **AX12 single-leg BLE v0.1**, with no boot enable. Its BLE name is **JumpingFlash-Leg**.
-3. In the APK's Robot link tab, scan and select JumpingFlash-Leg. Complete Android pairing if prompted, then select Connect again. Pairing uses encrypted bonded BLE with Just Works, not passkey/MITM authentication or a first-owner whitelist. This is a local prototype connection policy, not a competition security design. If Android requests location permission/location services for BLE scanning, grant/enable them.
-4. Live internal input is **ON by default** and starts automatically. Drive and Native inputs both have an explicit **Internal inputs ON • turn OFF** switch; OFF is remembered across app restarts. No repeated ownership checkbox is required. Keep RadioMasterAX/other serial readers stopped. If an actual port-open/read error occurs, Native inputs offers **Retry internal input connection**. The dashboard should show fresh internal inputs, SB **DISARMED**, centered CH1/CH2 and throttle0%. Defaults use the captured native ±500 ranges; Controls offers Reverse and endpoint/center capture. Verify physical SB orientation by its displayed state; do not infer it from “up/down.”
+3. Open CONNECT → Find my Stick → tap Connect this Stick on JumpingFlash-Leg. Accept Android pairing if prompted; the original request continues automatically. Reconnect last Stick is available after the first selection. See [the new connection flow](AX12-UI-v0.5.md). Pairing uses encrypted bonded BLE with Just Works, not passkey/MITM authentication or a first-owner whitelist. This is a local prototype connection policy, not a competition security design. If Android requests location permission/location services for BLE scanning, grant/enable them.
+4. Live internal input is **ON by default** and starts automatically. Flight Deck and Pit Tools both have an explicit **Internal inputs ON • turn OFF** switch; OFF is remembered across app restarts. No repeated ownership checkbox is required. Keep RadioMasterAX/other serial readers stopped. If an actual port-open/read error occurs, Pit Tools offers **Retry input connection**. The dashboard should show fresh internal inputs, SB **DISARMED**, centered CH1/CH2 and throttle0%. Defaults use the captured native ±500 ranges; Controls offers direction reversal; Pit Tools → Detailed input calibration offers endpoint/center capture. Verify physical SB orientation by its displayed state; do not infer it from “up/down.”
 5. With the leg manually at fully retracted0°, SB DISARMED, centered gimbals and fresh input, release then hold physical **Stick B for2seconds**. Wait for valid reference and READY. Zero is captured once per boot, not on BLE reconnect.
 6. Move SB to its middle **LEG ARMED** position. The leg should arm at its measured position. Move elevator a small amount to verify direction: positive normalized elevator extends, negative retracts. Neutral actively holds; fixed travel0..80°, **1A /1rad/s**. Use Controls → CH2 Reverse if necessary, while disarmed; dialogs do not require restarting live input; select SB DISARMED before rearming.
 7. SB DISARMED disables. Confirm this, then confirm loss handling by switching off the AX12/closing the app. Reference should survive a confirmed ordinary stop; motor/CAN/reset uncertainty invalidates it. Reconnect/restart inputs explicitly, select SB DISARMED with centered gimbals, then deliberately rearm. Never replay an old target.
 
-Pairing/permission dialogs and focus loss disarm the robot but keep the live reader running. STOP disarms without turning off live inputs. Actual backgrounding closes the port and BLE connection; returning automatically resumes live input reading, with SB DISARMED still required before rearming. BLE reconnect remains manual. Explicit input OFF, entering passive-probe mode, selecting an external gamepad, opening stock-app settings or restoring RadioMasterAX turns off automatic native reading. Turn internal inputs OFF before launching RadioMasterAX by any route. A stopped serial worker must finish closing before another reader starts. Restore RadioMasterAX only after stopping our reader; the existing Restore button waits for port close.
+Pairing/permission dialogs and focus loss disarm the robot but keep the live reader running. STOP disarms without turning off live inputs. Actual backgrounding closes the port and BLE connection; returning automatically resumes live input reading, with SB DISARMED still required before rearming. BLE reconnect remains manual. Explicit input OFF, entering passive-probe mode, selecting an external gamepad, opening stock-app settings or restoring RadioMasterAX turns off automatic native reading. Turn internal inputs OFF before launching RadioMasterAX by any route. A stopped serial worker must finish closing before another reader starts. Restore RadioMasterAX only after stopping our reader; the Restore button in Pit Tools → Advanced serial probe waits for port close.
 
 ## Controls implemented for this rig
 
@@ -71,3 +71,7 @@ New host tests cover receiver CRC/length/sequence/session/deadline handling, neu
 ## APK v0.4.1 usability update
 
 Stick v0.1 is unchanged; no reflash is needed for this update. Native input is default-on, manually switchable OFF, automatically resumed after backgrounding, and retained across focus-only dialogs and operator STOP. OFF persists across app restarts. Transient invalid input reports do not permanently kill the serial reader. Source freshness, command deadlines, disarming and SB-off rearming rules are retained. Read-only input recovery is separate from actuator arming.
+
+## APK v0.5.0 interface update
+
+[Flight deck, previews and guided Bluetooth connection](AX12-UI-v0.5.md). Stick v0.1 and actuator behavior are unchanged. Pairing now continues the original user-requested connection automatically; actual link-loss recovery still requires a deliberate reconnect and SB-off rearm.

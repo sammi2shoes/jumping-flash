@@ -1,0 +1,10 @@
+<resources>
+ <style name="JumpingFlashTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+  <item name="android:fontFamily">sans-serif</item>
+  <item name="android:colorAccent">#14917A</item>
+  <item name="android:windowLightStatusBar">true</item>
+  <item name="android:statusBarColor">#E8F6FF</item>
+  <item name="android:navigationBarColor">#192D5B</item>
+  <item name="android:windowActionModeOverlay">true</item>
+ </style>
+</resources>

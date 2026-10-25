@@ -2,6 +2,8 @@
 
 Arduino C++ development for an operator-controlled, 3 lb NHRL robot with a spring-foot four-bar leg mechanism. The actual controller is **M5StickC Plus2**, with an M5 MiniCAN unit and **RobStride 05 CAN2.0 firmware0.5.0.14**. One leg motor is available now; two are planned. The spinner ESC is AM32, 100 A, with PWM/DShot undecided.
 
+**AX12 v0.5.0:** [New flight deck and Bluetooth flow](docs/AX12-UI-v0.5.md).
+
 **AX12 single-leg BLE test:** [APK / Stick downloads and setup](docs/AX12-SINGLE-LEG.md). This new pair is built and simulated; physical BLE acceptance is pending.
 
 **Start with [current status](docs/STATUS.md).** The tested watchdog and bench movement are implemented. The complete walking/jumping/spinner controller is not. None of these builds should be treated as calibrated linkage control or certified competition failsafe behavior.
