@@ -1,6 +1,6 @@
 # AX12 BLE transport v2 — named RC controls
 
-Implemented Android client contract for APK0.2.0; matching Stick firmware remains unimplemented. MotorRecovery v0.16 accepts Bluepad32 HID, not this GATT protocol. Version1 is archived in history/AX12-BLE-PROTOCOL-v1.md. Version2 deliberately rejects version1 frames because style and payload meanings changed; never reinterpret old messages under the new layout.
+Implemented Android client contract for APK0.2.0; AX12SingleLeg v0.1 now implements the single-leg bench subset; see AX12-SINGLE-LEG.md. MotorRecovery v0.16 accepts Bluepad32 HID, not this GATT protocol. Version1 is archived in history/AX12-BLE-PROTOCOL-v1.md. Version2 deliberately rejects version1 frames because style and payload meanings changed; never reinterpret old messages under the new layout.
 
 ## Operator profile
 
@@ -35,7 +35,7 @@ All frames20bytes, default ATT MTU compatible. Multibyte values little endian. N
 | 12 | 1 | throttle0..255; zero unless spinner-arm requested | battery millivolts low byte |
 | 13 | 1 | height0..255 while drive-arm requested; zero otherwise | battery millivolts high byte |
 | 14 | 1 | requested SB0/1/2; informational, never sufficient to arm | fault byte |
-| 15 | 1 | reserved zero | supported capability bits: bit0hop, bit1gyro, bit2ambulate, bit3spinner, bit4full-power jump |
+| 15 | 1 | reserved zero | supported capability bits: bit0hop, bit1gyro, bit2ambulate, bit3spinner, bit4full-power jump; bit5single-leg manual bench control (no gait capabilities implied) |
 | 16 | 2 | random nonzero session | echo command session |
 | 18 | 2 | CRC16/CCITT-FALSE over bytes0..17 | same |
 
@@ -55,3 +55,7 @@ CRC polynomial0x1021, init0xffff, no reflection/final xor. Golden `123456789`→
 Preserve existing manual0..80deg reference, no boot enable/auto-zero/save/calibration/fault-clear, RS05-specific scales and verified CAN watchdog. Validate every field/version/length/CRC/session/sequence and capability before refreshing a bounded command deadline (initial target100ms). Stop all implemented actuators on timeout/link loss and discard old motion/cycles. New sessions are accepted only while stopped. Advertise only physically implemented modes; one leg must not claim coordinated gait/jump validation. Spinner needs verified AM32 PWM/DShot output and its own failsafe. App-side CH1/CH2 differential mixing is a normalized preview, not actual gait planning or motor-angle targets.
 
 Android may emit stationary joystick values only on change. Input age is diagnostic, not a guaranteed input-device heartbeat; controller presence/enable/focus checks cannot detect every frozen input driver. Independently test receiver deadlines, power/reset/reference handling, spinner suppression, SD edges and loaded stopping before replacing the tested gamepad path. No tested Stick motor firmware was changed by this APK update.
+
+## Single-leg bench capability (APK v0.4.0 / Stick v0.1)
+
+Telemetry capability32 advertises manual single-leg control separately from gait capabilities. The app permits manual arming without an SC gait capability when this bit is present. Receiver uses forward as signed leg rate, ignores steering after neutral arming, and never implements spinner/jump/height actuation. SC is echoed for consistency but changing it while armed disarms. All actuator capability bits0..4 remain clear. See AX12-SINGLE-LEG.md for native-input and pairing policy.

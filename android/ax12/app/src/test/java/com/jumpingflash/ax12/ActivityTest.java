@@ -392,4 +392,69 @@ public class ActivityTest {
       assertFalse((Boolean) get(a, "armedRequest"));
     }
   }
+
+  @Test
+  public void nativeSingleLegArmingNeedsFreshReportsOffEdgeAndNoAndroidDevice() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity a = c.get();
+      Object attach =
+          org.robolectric.util.ReflectionHelpers.getField(
+              a.getWindow().getDecorView(), "mAttachInfo");
+      org.robolectric.util.ReflectionHelpers.setField(attach, "mHasWindowFocus", true);
+      Method select = MainActivity.class.getDeclaredMethod("selectNativeInputs");
+      select.setAccessible(true);
+      select.invoke(a);
+      NativeRadioInput reader = (NativeRadioInput) get(a, "nativeRadio");
+      org.robolectric.util.ReflectionHelpers.setField(reader, "running", true);
+      ((BleLink) get(a, "ble")).ready = true;
+      org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(1));
+      long now = android.os.SystemClock.elapsedRealtime();
+      set(a, "telemetryAt", now);
+      set(a, "robotFlags", 3);
+      set(a, "capabilities", 32);
+      UmbusProbe d = new UmbusProbe();
+      byte[] frame = NativeRadioInputTest.actualFrame();
+      d.feed(frame, frame.length, now);
+      short[] values = d.sources.clone();
+      values[1] = values[3] = 0;
+      values[2] = -500;
+      values[22] = 0;
+      Method consume = MainActivity.class.getDeclaredMethod("consumeNativeInputs");
+      consume.setAccessible(true);
+      // Opening with SB already armed cannot arm, despite valid telemetry.
+      org.robolectric.util.ReflectionHelpers.setField(
+          reader, "latest", new NativeRadioInput.Sample(values, now, 1));
+      consume.invoke(a);
+      assertFalse((Boolean) get(a, "armedRequest"));
+      values[21] = -500;
+      org.robolectric.util.ReflectionHelpers.setField(
+          reader, "latest", new NativeRadioInput.Sample(values, now, 2));
+      consume.invoke(a);
+      values[21] = 0;
+      org.robolectric.util.ReflectionHelpers.setField(
+          reader, "latest", new NativeRadioInput.Sample(values, now, 3));
+      consume.invoke(a);
+      assertTrue((Boolean) get(a, "armedRequest"));
+      assertEquals(-1, get(a, "inputId"));
+      // SD does not request jump on manual-only firmware.
+      set(a, "robotFlags", 7);
+      values[23] = 500;
+      org.robolectric.util.ReflectionHelpers.setField(
+          reader, "latest", new NativeRadioInput.Sample(values, now, 4));
+      consume.invoke(a);
+      assertFalse((Boolean) get(a, "launchPending"));
+      org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(120));
+      consume.invoke(a);
+      assertFalse((Boolean) get(a, "armedRequest"));
+      now = android.os.SystemClock.elapsedRealtime();
+      set(a, "telemetryAt", now);
+      org.robolectric.util.ReflectionHelpers.setField(
+          reader, "latest", new NativeRadioInput.Sample(values, now, 5));
+      consume.invoke(a);
+      assertFalse(
+          (Boolean) get(a, "armedRequest")); // New heartbeat with SB still armed does not rearm.
+      org.robolectric.util.ReflectionHelpers.setField(reader, "running", false);
+    }
+  }
 }

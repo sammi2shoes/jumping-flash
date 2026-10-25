@@ -4,7 +4,7 @@ project_dir="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$project_dir"
 check_dir="$(mktemp -d "${TMPDIR:-/tmp}/jumping-flash-check.XXXXXX")"
 trap 'rm -rf "$check_dir"' EXIT
-for suite in telemetry-host jog-host legacy-setup-host legacy-watchdog-host post-update-host motor-recovery-host; do
+for suite in ax12-ble-host telemetry-host jog-host legacy-setup-host legacy-watchdog-host post-update-host motor-recovery-host; do
   g++ -std=c++17 -I"tests/$suite" "tests/$suite/test.cpp" -o "$check_dir/$suite"
   "$check_dir/$suite"
 done

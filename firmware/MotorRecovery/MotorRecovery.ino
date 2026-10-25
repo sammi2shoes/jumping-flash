@@ -1,6 +1,10 @@
 #include <Arduino.h>
 #include <M5Unified.h>
+#ifdef AX12_BLE
+#include "../AX12SingleLeg/AX12Transport.h"
+#else
 #include <Bluepad32.h>
+#endif
 #include <driver/twai.h>
 #include <cmath>
 #include <cstring>
@@ -110,13 +114,24 @@ bool inputFresh() {
   return pad && pad->isConnected() && pad->isGamepad() && padReport != 0 && uint32_t(millis() - padReport) < (fastCritical ? 50U : PAD_STALE_MS);
 }
 bool held() { return inputFresh() && pad->r1(); }
+bool disarmedInput() {
+#ifdef AX12_BLE
+  return ax12.disarmed();
+#else
+  return !held();
+#endif
+}
 bool centered() { return inputFresh() && abs(pad->axisX()) <= 60; }
 void connected(ControllerPtr candidate) {
   // Bluepad32 can connect before the first report supplies the controller class.
   // Retain the handle now; require actual gamepad reports before accepting input.
   if (!pad) {
     pad = candidate; padReport = 0; padReports = 0; cycleButtonDown = fastButtonDown = true;
+#ifdef AX12_BLE
+    Serial.println("AX12 BLE transport ready; waiting for a paired client and fresh disarmed commands.");
+#else
     if (!fastCritical) Serial.println("BT connected: waiting for gamepad reports. Release RB/R1.");
+#endif
   }
 }
 void disconnected(ControllerPtr candidate) {
@@ -289,6 +304,9 @@ void loseControl(const char* reason, bool uncertain = false) {
   if (fastCritical) { fastResult = reason; fastSummaryPending = true; fastCritical = false; }
   motorIq = motorVelocity = motorVoltage = NAN;
   iqAt = velocityAt = voltageAt = traceAt = 0;
+#ifdef AX12_BLE
+  ax12.requireDisarm();
+#endif
   phase = OFFLINE; pending = false; releasedAt = 0; targetRate = 0; referenceHoldAt = 0; clearCycle();
   const bool stopped = stopMotor();
   Serial.printf("DISARMED: %s; old target discarded.\n", reason);
@@ -390,7 +408,11 @@ bool configureDisabled() {
   if (referenceCaptured && !referenceValid)
     Serial.println("CAN ready / disabled; REF INVALID. Restart and manually reference at the known retracted pose. B cannot overwrite this session's zero.");
   else if (referenceCaptured)
+#ifdef AX12_BLE
+    Serial.println("CAN ready / disabled; existing fixed zero preserved. Center gimbals and select SB DISARMED.");
+#else
     Serial.println("CAN ready / disabled; existing fixed zero preserved. Center stick and release R1 before enabling.");
+#endif
   else
     Serial.println("CAN ready / disabled. Reference required: position fully retracted; release then hold Stick B for 2 seconds.");
   return true;
@@ -398,21 +420,25 @@ bool configureDisabled() {
 
 bool captureReference() {
   // This is a manual pose declaration, not automatic homing or a motor-zero command.
-  if (referenceCaptured || !inputFresh() || !centered() || held() || !M5.BtnB.isPressed()) return false;
+  if (referenceCaptured || !inputFresh() || !centered() || !disarmedInput() || !M5.BtnB.isPressed()) return false;
   if (!stopMotor() || motorFlags || motorFault || !readPosition()) return false;
   const float first = position;
   const uint32_t began = millis();
   while (uint32_t(millis() - began) < 100) {
     service();
-    if (stopRequested || !inputFresh() || !centered() || held() || !M5.BtnB.isPressed()) return false;
+    if (stopRequested || !inputFresh() || !centered() || !disarmedInput() || !M5.BtnB.isPressed()) return false;
     delay(1);
   }
-  if (!readPosition() || fabsf(position - first) > .002f || stopRequested || !inputFresh() || !centered() || held() || !M5.BtnB.isPressed()) {
+  if (!readPosition() || fabsf(position - first) > .002f || stopRequested || !inputFresh() || !centered() || !disarmedInput() || !M5.BtnB.isPressed()) {
     Serial.println("Reference rejected: leg must be stationary at the known retracted pose."); return false;
   }
   origin = position; referenceCaptured = referenceValid = true;
   target = position; targetRate = 0; releasedAt = 0; phase = WAIT_RELEASE;
+#ifdef AX12_BLE
+  Serial.printf("ZERO CAPTURED encoder=%.6f rad. Fixed 0..80 deg limits; center gimbals then select SB armed.\n", origin);
+#else
   Serial.printf("ZERO CAPTURED encoder=%.6f rad. Fixed 0..80 deg limits; hold R1 for active position hold.\n", origin);
+#endif
   return true;
 }
 
@@ -443,7 +469,11 @@ bool armMotor() {
   target = position;
   if (!withinReference() || !writeChecked(0x7016, bitsOf(target)) || !held() || cancelled || motorFault) return false;
   clearCycle(); targetRate = 0; phase = ACTIVE; pollAt = millis();
+#ifdef AX12_BLE
+  Serial.println("ARMED HOLD: elevator extends/retracts; neutral holds; SB DISARMED disables. Fixed 0..80 deg at 1 rad/s, 1 A. No spinner/jump/gaits.");
+#else
   Serial.println("ARMED HOLD: keep R1 held; neutral holds; release R1 to DISABLE. Fixed travel 0..80 deg at 1.0 rad/s, 1 A.");
+#endif
   return true;
 }
 
@@ -559,23 +589,38 @@ void setup() {
   esp_err_t e = twai_driver_install(&g, &t, &f);
   if (e == ESP_OK) e = twai_start();
   driverReady = e == ESP_OK; retryAt = millis() + 1500;
+#ifdef AX12_BLE
+  Serial.printf("AX12 single-leg BLE v0.1 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+#else
   Serial.printf("RS05 position hold v0.16 CAN=%s. No enable on boot.\n", esp_err_to_name(e));
+#endif
   if (driverReady) Serial.println(stopMotor() ? "Startup disabled confirmed." : "Startup STOP unconfirmed; use motor power cutoff if needed.");
+#ifdef AX12_BLE
+  Serial.println("Pair/connect JumpingFlash-Leg from AX12 app v0.4.0. SB DISARMED and centered gimbals are required.");
+  Serial.println("Manual retracted reference: release then hold Stick B 2 seconds. Elevator positive extends (encoder decreases).");
+  Serial.println("100 ms BLE deadline; tested 20000-count CAN watchdog. A / serial x stops. No spinner, SD jump, S2 height or SC gait output.");
+#else
   Serial.println("Waiting for Bluetooth gamepad input. Reconnect/pair the controller; release RB/R1.");
   Serial.println("Extension direction: decreasing encoder position; right stick extends, left retracts.");
   Serial.println("FAST_TRACE_HEADER,t_us,feedback_us,stage,pos_deg,command_deg,velocity_deg_s,motor_torque_Nm,interval_us");
   Serial.println("TRACE_HEADER,t_ms,pos_ms,cycle_at_pos,pos_deg,target_at_pos_deg,error_deg,command_deg,command_rate_deg_s,vel_ms,vel_deg_s,iq_ms,iq_A,vbus_ms,vbus_V,profile_A,profile_rad_s,control_ms,cycle_mode");
   Serial.println("Controller Y: SLOW cycle (1 A/1 rad/s). Controller X: buffered low-latency OUT/RETURN (3 A/5 rad/s) after slow retract. R1 must stay held; stick overrides.");
   Serial.println("RB/R1=hold enable; left X=motion; neutral=hold position. Button A on Stick or serial x=stop. No spinner output.");
+#endif
 }
 
 void loop() {
   service();
+#ifdef AX12_BLE
+  ax12.telemetry(phase == READY || phase == NEED_REFERENCE || phase == ARMING || phase == ACTIVE,
+    referenceValid, phase == ACTIVE, motorFault || !referenceValid && referenceCaptured,
+    EXTEND_SIGN * (position-origin) * 180.0f/PI, motorVoltage, motorFlags);
+#endif
   if (fastCritical) { runFastWindow(); return; }
   const uint32_t now = millis();
   if (driverReady) {
     if (stopRequested || ((phase == ACTIVE || phase == ARMING) && (cancelled || motorFault || !referenceValid || !held()))) {
-      loseControl("R1 released, stop, controller loss/stale data, or motor state change", motorFault || !referenceValid);
+      loseControl("enable released, stop, controller loss/stale data, or motor state change", motorFault || !referenceValid);
     } else if (phase == ACTIVE && burstAt && uint32_t(now - burstAt) >= MAX_BURST_MS) {
       loseControl("fast cycle exceeded 2-second burst deadline");
     } else if (phase == OFFLINE && inputFresh() && int32_t(now - retryAt) >= 0) {
@@ -593,7 +638,7 @@ void loop() {
       }
       if (phase == NEED_REFERENCE) {
         if (!M5.BtnB.isPressed()) { referenceButtonReleased = true; referenceHoldAt = 0; }
-        else if (!referenceCaptured && referenceButtonReleased && inputFresh() && centered() && !held() && !M5.BtnA.isPressed()) {
+        else if (!referenceCaptured && referenceButtonReleased && inputFresh() && centered() && disarmedInput() && !M5.BtnA.isPressed()) {
           if (!referenceHoldAt) referenceHoldAt = now;
           if (uint32_t(now - referenceHoldAt) >= 2000) {
             referenceHoldAt = 0; referenceButtonReleased = false;
@@ -602,9 +647,15 @@ void loop() {
         } else referenceHoldAt = 0;
       } else if (!inputFresh() || M5.BtnA.isPressed()) { phase = WAIT_RELEASE; releasedAt = 0; }
       else if (phase == WAIT_RELEASE) {
-        if (!held() && centered()) {
+        if (disarmedInput() && centered()) {
           if (!releasedAt) releasedAt = now;
-          if (uint32_t(now - releasedAt) >= 100) { phase = READY; Serial.println("Ready. Press/hold R1 with left stick centered for active position hold."); }
+          if (uint32_t(now - releasedAt) >= 100) { phase = READY;
+#ifdef AX12_BLE
+            Serial.println("Ready. Center gimbals, then select SB armed for active position hold.");
+#else
+            Serial.println("Ready. Press/hold R1 with left stick centered for active position hold.");
+#endif
+          }
         } else releasedAt = 0;
       } else if (held()) {
         if (!centered()) { phase = WAIT_RELEASE; releasedAt = 0; Serial.println("Center stick and release RB/R1 before enabling."); }
@@ -715,7 +766,11 @@ void loop() {
     const char* names[] = {"CAN OFFLINE", "CONFIGURING", "RELEASE RB/R1", "READY", "ARMING", "ACTIVE HOLD", "SET ZERO: B 2s"};
     M5.Display.setCursor(0, 0);
     const char* padState = !pad || !pad->isConnected() ? "NO LINK" : !pad->isGamepad() ? "WAIT TYPE" : !padReport ? "NO REPORTS" : inputFresh() ? "FRESH" : "STALE";
+#ifdef AX12_BLE
+    M5.Display.printf("AX12 SINGLE LEG  \n%-16s\nBLE: %-10s\n1A / 0..80 deg\nSB: arm / stop\nB 2s: reference\nA / x: STOP\n", phase == NEED_REFERENCE && referenceCaptured ? "REF INVALID" : phase == WAIT_RELEASE ? "SELECT SB OFF" : phase == OFFLINE && !inputFresh() ? "CONNECT AX12" : names[phase], padState);
+#else
     M5.Display.printf("%-16s\nPAD: %-10s\n%.0fA / 0..80 deg\nR1: hold enable\nY slow / X fast\n%-9s\nA / x: STOP\n", phase == NEED_REFERENCE && referenceCaptured ? "REF INVALID" : phase == OFFLINE && !inputFresh() ? "CONNECT PAD" : names[phase], padState, expectedCurrent, cycleName());
+#endif
   }
   delay(1);
 }

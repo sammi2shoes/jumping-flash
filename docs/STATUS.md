@@ -1,5 +1,9 @@
 # Current project status
 
+## AX12 single-leg integration — new test build
+
+APK v0.4.0 and AX12SingleLeg v0.1 implement cable-free internal AX12 inputs and a matching Stick BLE peripheral for the one-motor rig. Manual reference, 0..80° travel, 1 A / 1 rad/s, neutral active hold and the tested CAN watchdog are preserved. SB disarms/arms; elevator moves the leg. No spinner, SD jump, height actuation or gait output. BLE/input loss clears motion and requires an SB disarmed cycle. Compiled/host-tested; this BLE pair awaits physical acceptance. See [install and test procedure](AX12-SINGLE-LEG.md). Existing MotorRecovery v0.16 remains the gamepad baseline.
+
 ## Verified on the user's bench
 
 - Actual controller is M5StickC Plus2, not the originally discussed Plus/SE.

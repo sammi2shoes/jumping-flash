@@ -12,6 +12,7 @@ public final class UmbusProbe {
       channelCandidates = 0;
   public long lastCandidateAt = 0, firstCandidateAt = 0;
   public short[] sources = null;
+  public boolean exactLiveLayout = false;
   public String lastFrame = "none", lastChecksum = "none";
   private byte[] buffer = new byte[2048];
   private int used = 0;
@@ -92,6 +93,7 @@ public final class UmbusProbe {
           int off = header + 1 + k * 2;
           values[k] = (short) (u(off) | (u(off + 1) << 8));
         }
+        exactLiveLayout = sync == 0xa6 && length == 99;
         sources = values;
         channelCandidates++;
         lastCandidateAt = now;

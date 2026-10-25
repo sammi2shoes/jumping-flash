@@ -1,5 +1,7 @@
 # Jumping Flash AX12 Android controller
 
+Current: **v0.4.0**, continuous cable-free AX12 internal inputs plus matching single-leg Stick firmware. See [AX12 single-leg setup](../../docs/AX12-SINGLE-LEG.md). Older gamepad/probe instructions below remain historical context. The live internal reader and BLE outputs are now integrated; physical acceptance of this pair is pending.
+
 Current app build: `0.3.0`, Android9/API28 or later, ARM64, landscape. APK: [download](https://github.com/sammi2shoes/jumping-flash/raw/refs/heads/main/releases/JumpingFlash-AX12-v0.3.0.apk).
 
 Includes Android gamepad gimbals/buttons, selectable input device, per-device axis/button mappings, optional axis-based switches, inversion/deadzone, manual center/endpoints calibration, dashboard, BLE scan/connect, telemetry/command transport, capability-gated modes, foreground/focus/enable-loss disarm, local demo and diagnostic export. No account, Internet permission or cloud service is required at runtime.
@@ -15,7 +17,7 @@ Includes Android gamepad gimbals/buttons, selectable input device, per-device ax
 5. SD requests a full-power jump on **both** state changes, in either armed SB state and regardless of SC. Initial switch states and edges while disarmed are never queued. SB arming requires a fresh transition from disarmed; reconnect never arms. Enter full arm with throttle low; SB drive-only always blocks spinner throttle. SC changes while armed disarm and require a fresh SB cycle.
 6. Diagnostics → Export diagnostic log includes Android/device details, named bindings/calibration, raw axes/key events and connection state. Use this if a switch reports unexpected inputs. Confirm that SD's Android input really latches with physical state rather than emitting momentary press pulses before enabling any receiver action.
 
-The APK still cannot drive MotorRecovery v0.16: matching BLE **v2** firmware is needed. The client carries separate drive/spinner arm requests, throttle, height, style and one-shot jump intent; actual spinner output, gait and full-power jump implementation remain absent. Robot reference remains a robot-side manual operation. Local DEMO closes Bluetooth and labels no-output operation.
+The APK cannot drive the old Bluepad32 MotorRecovery v0.16: matching BLE **v2** firmware is needed. The client carries separate drive/spinner arm requests, throttle, height, style and one-shot jump intent; actual spinner output, gait and full-power jump implementation remain absent. Robot reference remains a robot-side manual operation. Local DEMO closes Bluetooth and labels no-output operation.
 
 ## Development
 
@@ -26,7 +28,7 @@ cd android/ax12
 ./gradlew assembleDebug lintDebug testDebugUnitTest
 ```
 
-Windows: `gradlew.bat assembleDebug lintDebug testDebugUnitTest`. Android Studio can open this directory directly. The wrapper pins Gradle8.10.2 plus distribution checksum; AGP8.8.2, Java17 bytecode, compile/target SDK35 and versionCode4 are pinned. Unit tests use JUnit4.13.2 and Robolectric4.14.1 with Android9/API28, including native-graphics screen renders. Android9–15 installation and AX12-specific inputs/BLE remain hardware checks, not claims from host tests.
+Windows: `gradlew.bat assembleDebug lintDebug testDebugUnitTest`. Android Studio can open this directory directly. The wrapper pins Gradle8.10.2 plus distribution checksum; AGP8.8.2, Java17 bytecode, compile/target SDK35 and versionCode5 are pinned. Unit tests use JUnit4.13.2 and Robolectric4.14.1 with Android9/API28, including native-graphics screen renders. Android9–15 installation and AX12-specific inputs/BLE remain hardware checks, not claims from host tests.
 
 The deliberately public **development-only** signing keystore/password (`android`) keeps debug installs update-compatible across build machines. It is not a production signing identity or a robot authentication credential. Keep the application ID and signing config for updates and increment versionCode/versionName. Future distribution outside this development project requires separate signing management.
 

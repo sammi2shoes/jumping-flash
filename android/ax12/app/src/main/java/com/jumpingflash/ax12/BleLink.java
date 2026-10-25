@@ -120,6 +120,15 @@ public final class BleLink {
     int token = ++generation;
     listener.status("Connecting; motor commands remain disarmed.");
     try {
+      if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
+        if (device.getBondState() == BluetoothDevice.BOND_NONE && !device.createBond()) {
+          listener.status("Pairing could not start. Pair JumpingFlash-Leg in Bluetooth settings.");
+        } else
+          listener.status(
+              "Complete Android pairing, then choose Connect again. No automatic connection or"
+                  + " arm.");
+        return;
+      }
       gatt =
           device.connectGatt(
               activity,
@@ -139,6 +148,7 @@ public final class BleLink {
                       () -> {
                         if (status == BluetoothGatt.GATT_SUCCESS
                             && state == BluetoothProfile.STATE_CONNECTED) {
+                          g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH);
                           listener.status("Discovering Jumping Flash service…");
                           if (!g.discoverServices()) fail("Service discovery could not start.");
                         } else fail("Bluetooth disconnected (" + status + "). Reconnect manually.");
