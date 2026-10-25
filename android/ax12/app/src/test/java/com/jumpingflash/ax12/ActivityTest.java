@@ -42,7 +42,7 @@ public class ActivityTest {
     try (ActivityController<MainActivity> c =
         Robolectric.buildActivity(MainActivity.class).setup()) {
       MainActivity a = c.get();
-      for (int i = 0; i < 4; i++) {
+      for (int i = 0; i < 5; i++) {
         invoke(a, "showTab", int.class, i);
         View root = a.getWindow().getDecorView();
         root.measure(
@@ -277,6 +277,90 @@ public class ActivityTest {
       assertTrue(exported.contains("ALL-SOURCE INPUT TRACE"));
       assertTrue(exported.contains("code=24"));
       assertTrue(exported.contains("Named profile"));
+    }
+  }
+
+  @Test
+  public void nativeProbeModeBlocksAllArmAndLaunchEntrypoints() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity a = c.get();
+      set(a, "armedRequest", true);
+      set(a, "launchPending", true);
+      Method enter = MainActivity.class.getDeclaredMethod("enterNativeProbeMode");
+      enter.setAccessible(true);
+      enter.invoke(a);
+      assertTrue((Boolean) get(a, "nativeProbeMode"));
+      assertFalse((Boolean) get(a, "armedRequest"));
+      assertFalse((Boolean) get(a, "launchPending"));
+      for (String name :
+          new String[] {
+            "requestArm", "requestRadioArm", "requestLaunch", "requestRadioJump", "sendFrame"
+          }) {
+        Method m = MainActivity.class.getDeclaredMethod(name);
+        m.setAccessible(true);
+        m.invoke(a);
+      }
+      assertFalse((Boolean) get(a, "armedRequest"));
+      assertFalse((Boolean) get(a, "launchPending"));
+      assertEquals(0, get(a, "txCount"));
+    }
+  }
+
+  @Test
+  public void backgroundingStopsNativeReaderAndKeepsProbeModeLatched() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity a = c.get();
+      NativeUartProbeTest.FakePort io = new NativeUartProbeTest.FakePort();
+      NativeUartProbe probe = new NativeUartProbe(io, () -> {});
+      set(a, "nativeProbe", probe);
+      set(a, "nativeProbeMode", true);
+      assertTrue(probe.start("/dev/ttyS0", true));
+      assertTrue(io.entered.await(2, java.util.concurrent.TimeUnit.SECONDS));
+      c.pause();
+      assertTrue(probe.awaitStopped(2000));
+      assertEquals(1, io.closes);
+      assertTrue((Boolean) get(a, "nativeProbeMode"));
+      assertFalse((Boolean) get(a, "armedRequest"));
+    }
+  }
+
+  @Test
+  public void operatorStopAlsoStopsReadOnlyCapture() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity a = c.get();
+      NativeUartProbeTest.FakePort io = new NativeUartProbeTest.FakePort();
+      NativeUartProbe probe = new NativeUartProbe(io, () -> {});
+      set(a, "nativeProbe", probe);
+      set(a, "nativeProbeMode", true);
+      set(a, "armedRequest", true);
+      set(a, "launchPending", true);
+      probe.start("/dev/ttyS0", true);
+      assertTrue(io.entered.await(2, java.util.concurrent.TimeUnit.SECONDS));
+      Method stop = MainActivity.class.getDeclaredMethod("operatorStop");
+      stop.setAccessible(true);
+      stop.invoke(a);
+      assertTrue(probe.awaitStopped(2000));
+      assertEquals(1, io.closes);
+      assertFalse((Boolean) get(a, "armedRequest"));
+      assertFalse((Boolean) get(a, "launchPending"));
+    }
+  }
+
+  @Test
+  public void probeModeBlockSurvivesActivityRecreation() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity a = c.get();
+      Method enter = MainActivity.class.getDeclaredMethod("enterNativeProbeMode");
+      enter.setAccessible(true);
+      enter.invoke(a);
+      assertTrue(a.getSharedPreferences("ax12", 0).getBoolean("nativeProbeMode", false));
+      c.recreate();
+      assertTrue((Boolean) get(c.get(), "nativeProbeMode"));
+      assertFalse((Boolean) get(c.get(), "armedRequest"));
     }
   }
 

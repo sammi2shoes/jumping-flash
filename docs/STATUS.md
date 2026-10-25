@@ -97,3 +97,9 @@ Mads Tech video transcript reviewed: native ELRS persisted through closing the s
 ## Supplied vendor APK inspected: RadioMasterAX.260908
 
 Both analysis upload parts reassembled and15 selected hashes verified. Actual manifest/DEX/native AArch64 code and853 Qt resource entries inspected. The stock UI reads S2 from internal source index13 via AppRadioControl.getSrcCfgList/RcSrcGetRaw, separate from the user's cabled gamepad. This build has a non-exported boot service, not a channel API. Crucially, Lua recognizes s2/SB/SC/SD names but its getValue/getSourceValue backend only implements ele/thr/ail; a simple Lua dial bridge would return zero. rcJoystickMap is only a four-gimbal Mode1–4 permutation, not a proven generic HID remapper. Findings/hashes/addresses and remaining runtime-access questions are in AX12-APK-FINDINGS-260908.md. No transmitter or motor code was executed or patched.
+
+## AX12 v0.3.0 passive internal UART prototype
+
+Native-input screen, port access metadata, a tiny ARM64 read-only/exclusive JNI reader, bounded raw capture and provisional source decoding are implemented. It uses no root, UART writes or baud/config changes. Operator must force-stop the stock app before opening; TIOCEXCL prevents subsequent ordinary opens but does not evict pre-existing readers. Stock-app restore waits for our fd close. All robot sends/arm/jump actions are blocked in probe mode, which persists through app/activity restarts until explicit exit; probe values never feed robot controls. Existing mappings are retained.
+
+Build/lint and44 JVM/Android-runtime tests pass, plus an actual C-core Linux pseudo-TTY test. Native source/binary hashes are checked in normal builds. User AX12 UART access/frames are not yet tested. The next result needed is the Native inputs capture, external cable removed, per AX12-NATIVE-PROBE.md. APK releases/JumpingFlash-AX12-v0.3.0.apk.

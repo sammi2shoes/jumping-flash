@@ -12,6 +12,11 @@ import java.io.*;
 import java.util.*;
 
 public final class MainActivity extends Activity implements InputManager.InputDeviceListener {
+  private boolean nativeProbeMode = false;
+  private TextView nativeProbeView;
+  private CheckBox nativeOwnerCheck;
+  private String nativePath = "/dev/ttyS0";
+  private NativeUartProbe nativeProbe;
   private final InputTrace inputTrace = new InputTrace();
   private final Handler handler = new Handler(Looper.getMainLooper());
   private final Map<Integer, Float> axes = new TreeMap<>(),
@@ -375,6 +380,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private String radioArmBlock() {
+    if (nativeProbeMode) return "Native probe mode blocks robot outputs";
     if (demo) return "DEMO: no robot output";
     if (!foreground || !hasWindowFocus() || InputDevice.getDevice(inputId) == null)
       return "App focus and controller required";
@@ -437,6 +443,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void requestRadioJump() {
+    if (nativeProbeMode) return;
     if (!radioArming.jumpEdge
         || !armedRequest
         || radioState.sb <= 0
@@ -521,6 +528,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     super.onCreate(b);
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     prefs = getSharedPreferences("ax12", MODE_PRIVATE);
+    nativeProbeMode = prefs.getBoolean("nativeProbeMode", false);
     session = 1 + new java.security.SecureRandom().nextInt(65535);
     ble =
         new BleLink(
@@ -552,9 +560,17 @@ public final class MainActivity extends Activity implements InputManager.InputDe
               }
             });
     ((InputManager) getSystemService(INPUT_SERVICE)).registerInputDeviceListener(this, handler);
+    nativeProbe =
+        new NativeUartProbe(
+            new NativeUartProbe.DevicePort(),
+            () ->
+                handler.post(
+                    () -> {
+                      if (!isDestroyed()) render();
+                    }));
     detectInput();
     showTab(0);
-    log("AX12 app 0.2.1. Named RC profile; robot-side spinner/jump outputs not implemented.");
+    log("AX12 app 0.3.0. Named RC profile; robot-side spinner/jump outputs not implemented.");
     handler.post(pump);
   }
 
@@ -595,6 +611,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     tab = which;
     learningRole = -1;
     radioInfo = null;
+    nativeProbeView = null;
+    nativeOwnerCheck = null;
     LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
     root.setFitsSystemWindows(true);
@@ -603,19 +621,14 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     LinearLayout top = row();
     headline = text("JUMPING FLASH  •  AX12", 20);
     top.addView(headline, new LinearLayout.LayoutParams(0, -2, 1));
-    top.addView(
-        button(
-            "STOP",
-            () -> {
-              disarm("Operator STOP");
-              sendFrame();
-            }));
+    top.addView(button("STOP", this::operatorStop));
     root.addView(top);
     LinearLayout nav = row();
     addButton(nav, "Drive", () -> showTab(0));
     addButton(nav, "Controls", () -> showTab(1));
     addButton(nav, "Bluetooth", () -> showTab(2));
     addButton(nav, "Diagnostics", () -> showTab(3));
+    addButton(nav, "Native inputs", () -> showTab(4));
     root.addView(nav);
     ScrollView scroll = new ScrollView(this);
     body = new LinearLayout(this);
@@ -629,6 +642,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     if (which == 1) controls();
     if (which == 2) connections();
     if (which == 3) diagnostics();
+    if (which == 4) nativeInputPage();
     render();
   }
 
@@ -923,6 +937,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
         r,
         "Scan BLE",
         () -> {
+          if (nativeProbeMode) {
+            toast("Exit native probe mode first");
+            return;
+          }
           if (demo) {
             toast("Exit demo first");
             return;
@@ -944,6 +962,156 @@ public final class MainActivity extends Activity implements InputManager.InputDe
         button(
             "Android Bluetooth settings",
             () -> startActivity(new Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))));
+  }
+
+  private void operatorStop() {
+    if (nativeProbe != null) nativeProbe.stop();
+    disarm("Operator STOP");
+    sendFrame();
+  }
+
+  private void enterNativeProbeMode() {
+    disarm("Entering native probe mode");
+    sendFrame();
+    ble.close();
+    nativeProbeMode = true;
+    prefs.edit().putBoolean("nativeProbeMode", true).apply();
+    render();
+  }
+
+  private void restoreRadioWhenClosed(int attempt) {
+    if (!foreground) return;
+    if (nativeProbe.running()) {
+      if (attempt >= 25) {
+        toast("Reader still closing; retry Restore after it stops");
+        return;
+      }
+      handler.postDelayed(() -> restoreRadioWhenClosed(attempt + 1), 50);
+      return;
+    }
+    Intent launch = getPackageManager().getLaunchIntentForPackage("com.Flyshark.RadioMasterAX");
+    if (launch == null) {
+      toast("Open RadioMasterAX from the Android launcher");
+      return;
+    }
+    startActivity(launch);
+  }
+
+  private void nativeInputPage() {
+    body.addView(text("Internal UART • passive diagnostic prototype", 20));
+    body.addView(
+        text(
+            "This probe cannot control the robot. It closes Bluetooth and keeps outputs blocked"
+                + " until you explicitly exit probe mode. Remove the external DSC-to-USB cable for"
+                + " the test. No root, baud changes, UART writes or transmitter configuration"
+                + " commands are used.",
+            14));
+    LinearLayout setup = row();
+    addButton(setup, "1. Enter probe mode", this::enterNativeProbeMode);
+    addButton(
+        setup,
+        "2. Stock app settings",
+        () -> {
+          enterNativeProbeMode();
+          nativeProbe.stop();
+          startActivity(
+              new Intent(
+                  android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                  android.net.Uri.parse("package:com.Flyshark.RadioMasterAX")));
+        });
+    body.addView(setup);
+    body.addView(
+        text(
+            "In stock app settings, use Force stop for this test, then return here. Stopping"
+                + " the stock app is required: locking this port will not disconnect readers"
+                + " already using it. Native RC operation may be interrupted; keep the"
+                + " robot disarmed. Restore the stock app after capture.",
+            14));
+    CheckBox owner = new CheckBox(this);
+    nativeOwnerCheck = owner;
+    owner.setText(
+        "I have stopped the stock RadioMaster app and other serial readers for this test");
+    owner.setTextColor(TEXT);
+    body.addView(owner);
+    Spinner ports = new Spinner(this);
+    ports.setAdapter(
+        new ArrayAdapter<>(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            new String[] {
+              "/dev/ttyS0 (default internal port)", "/dev/ttyS4 (alternate listed in stock app)"
+            }));
+    ports.setSelection(nativePath.endsWith("4") ? 1 : 0);
+    ports.setOnItemSelectedListener(
+        new AdapterView.OnItemSelectedListener() {
+          public void onNothingSelected(AdapterView<?> p) {}
+
+          public void onItemSelected(AdapterView<?> p, View v, int i, long id) {
+            nativePath = i == 0 ? "/dev/ttyS0" : "/dev/ttyS4";
+          }
+        });
+    body.addView(ports);
+    LinearLayout actions = row();
+    addButton(
+        actions,
+        "3. Start 45s passive capture",
+        () -> {
+          if (!nativeProbeMode) {
+            toast("Enter probe mode first");
+            return;
+          }
+          if (!owner.isChecked()) {
+            toast("Stop the stock app and confirm ownership first");
+            return;
+          }
+          nativeProbe.start(nativePath, true);
+        });
+    addButton(actions, "Stop capture", () -> nativeProbe.stop());
+    body.addView(actions);
+    body.addView(
+        button(
+            "Refresh port access information",
+            () -> {
+              log(nativeProbe.metadata());
+              toast(nativeProbe.metadata());
+            }));
+    body.addView(text(nativeProbe.metadata(), 14));
+    nativeProbeView = text("", 14);
+    body.addView(nativeProbeView);
+    body.addView(
+        text(
+            "Raw sources shown below are Sept-build layout candidates, not verified robot inputs."
+                + " Export the capture via Diagnostics. Access denied, busy port, no bytes, bad"
+                + " frames and changed layouts are separate outcomes; none enables outputs.",
+            14));
+    LinearLayout finish = row();
+    addButton(
+        finish,
+        "Restore stock RadioMaster app",
+        () -> {
+          nativeProbe.stop();
+          disarm("Restoring stock app");
+          ble.close();
+          restoreRadioWhenClosed(0);
+        });
+    addButton(
+        finish,
+        "Exit probe mode",
+        () -> {
+          if (nativeProbe.running()) {
+            toast("Stop capture and wait for port close first");
+            return;
+          }
+          nativeProbeMode = false;
+          prefs.edit().putBoolean("nativeProbeMode", false).apply();
+          radioState = new RadioProfile.Snapshot();
+          axes.clear();
+          keys.clear();
+          seenKeys.clear();
+          disarm("Probe ended; fresh input and deliberate rearm required");
+          showTab(0);
+        });
+    body.addView(finish);
   }
 
   private void diagnostics() {
@@ -1014,6 +1182,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void chooseBle() {
+    if (nativeProbeMode) {
+      toast("Exit native probe mode before Bluetooth connection");
+      return;
+    }
     if (!ble.permissions()) return;
     List<BluetoothDevice> found = new ArrayList<>(devices.values());
     if (found.isEmpty()) {
@@ -1251,6 +1423,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void requestArm() {
+    if (nativeProbeMode) {
+      disarm("Native probe mode blocks arming");
+      return;
+    }
     if (radioActive) {
       requestRadioArm();
       return;
@@ -1292,6 +1468,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void requestLaunch() {
+    if (nativeProbeMode) return;
     if (radioActive) {
       requestRadioJump();
       return;
@@ -1355,6 +1532,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void sendFrame() {
+    if (nativeProbeMode) return;
     if (!Float.isFinite(forward()) || !Float.isFinite(turn()))
       disarm(
           radioActive
@@ -1522,6 +1700,9 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       rawView.setText(s);
     }
     if (radioActive) renderRadio();
+    if (nativeProbeMode) headline.setText("NATIVE PROBE • ROBOT OUTPUT BLOCKED");
+    if (nativeProbeView != null && nativeProbe != null)
+      nativeProbeView.setText(nativeProbe.snapshot());
     if (sticks != null) sticks.invalidate();
   }
 
@@ -1545,6 +1726,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   @Override
   protected void onPause() {
     foreground = false;
+    if (nativeProbe != null) nativeProbe.stop();
+    if (nativeOwnerCheck != null) nativeOwnerCheck.setChecked(false);
     disarm("App left foreground");
     sendFrame();
     keys.clear();
@@ -1556,6 +1739,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   public void onWindowFocusChanged(boolean focus) {
     super.onWindowFocusChanged(focus);
     if (!focus) {
+      if (nativeProbe != null) nativeProbe.stop();
+      if (nativeOwnerCheck != null) nativeOwnerCheck.setChecked(false);
       disarm("App lost focus");
       sendFrame();
       keys.clear();
@@ -1567,6 +1752,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
 
   @Override
   protected void onDestroy() {
+    if (nativeProbe != null) nativeProbe.stop();
     handler.removeCallbacksAndMessages(null);
     ((InputManager) getSystemService(INPUT_SERVICE)).unregisterInputDeviceListener(this);
     ble.close();
@@ -1606,7 +1792,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
         if (out == null) throw new IOException("No output stream");
         String header =
-            "Jumping Flash AX12 0.2.1\nNamed profile "
+            "Jumping Flash AX12 0.3.0\nNamed profile "
                 + radioMappingText()
                 + "\nDevice "
                 + deviceName
@@ -1632,6 +1818,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                 + launchKey
                 + "\n";
         out.write(header.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (nativeProbe != null)
+          out.write(nativeProbe.dump().getBytes(java.nio.charset.StandardCharsets.UTF_8));
         out.write(
             (InputTrace.inventory() + "\n" + inputTrace.dump())
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8));
