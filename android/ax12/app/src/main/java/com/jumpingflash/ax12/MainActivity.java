@@ -12,6 +12,7 @@ import java.io.*;
 import java.util.*;
 
 public final class MainActivity extends Activity implements InputManager.InputDeviceListener {
+  private final InputTrace inputTrace = new InputTrace();
   private final Handler handler = new Handler(Looper.getMainLooper());
   private final Map<Integer, Float> axes = new TreeMap<>(),
       mins = new TreeMap<>(),
@@ -553,7 +554,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     ((InputManager) getSystemService(INPUT_SERVICE)).registerInputDeviceListener(this, handler);
     detectInput();
     showTab(0);
-    log("AX12 app 0.2.0. Named RC profile; robot-side spinner/jump outputs not implemented.");
+    log("AX12 app 0.2.1. Named RC profile; robot-side spinner/jump outputs not implemented.");
     handler.post(pump);
   }
 
@@ -946,6 +947,20 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void diagnostics() {
+    body.addView(
+        text(
+            "Dial probe: tap Reset input trace, turn ONLY S1/S2 through their travel, then export"
+                + " the log. This captures generic motion and key events from all devices/sources,"
+                + " including rotary/scroll events. It does not assign those events to robot"
+                + " controls.",
+            14));
+    body.addView(
+        button(
+            "Reset input trace / probe dials",
+            () -> {
+              inputTrace.clear();
+              log("All-source dial probe reset");
+            }));
     rawView = text("", 14);
     body.addView(rawView);
     body.addView(
@@ -1164,6 +1179,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
 
   @Override
   public boolean dispatchGenericMotionEvent(MotionEvent e) {
+    inputTrace.motion(e);
     if ((e.getSource() & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
         && e.getAction() == MotionEvent.ACTION_MOVE) {
       InputDevice d = e.getDevice();
@@ -1201,6 +1217,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
 
   @Override
   public boolean dispatchKeyEvent(KeyEvent e) {
+    inputTrace.key(e);
     if (e.getDeviceId() == inputId
         && (KeyEvent.isGamepadButton(e.getKeyCode())
             || (e.getKeyCode() >= KeyEvent.KEYCODE_DPAD_UP
@@ -1501,6 +1518,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
         int skip = Math.max(0, logs.size() - 8), i = 0;
         for (String l : logs) if (i++ >= skip) s.append(l).append('\n');
       }
+      if (tab == 3) s.append("\n").append(inputTrace.recent());
       rawView.setText(s);
     }
     if (radioActive) renderRadio();
@@ -1588,7 +1606,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
         if (out == null) throw new IOException("No output stream");
         String header =
-            "Jumping Flash AX12 0.2.0\nNamed profile "
+            "Jumping Flash AX12 0.2.1\nNamed profile "
                 + radioMappingText()
                 + "\nDevice "
                 + deviceName
@@ -1614,6 +1632,9 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                 + launchKey
                 + "\n";
         out.write(header.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        out.write(
+            (InputTrace.inventory() + "\n" + inputTrace.dump())
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
         for (String l : logs)
           out.write((l + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
         toast("Diagnostic log exported");

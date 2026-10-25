@@ -1,6 +1,6 @@
 # Jumping Flash AX12 Android controller
 
-First substantial app build: `0.2.0`, Android8/API26 or later, landscape. APK: [download](https://github.com/sammi2shoes/jumping-flash/raw/refs/heads/main/releases/JumpingFlash-AX12-v0.2.0.apk).
+First substantial app build: `0.2.1`, Android8/API26 or later, landscape. APK: [download](https://github.com/sammi2shoes/jumping-flash/raw/refs/heads/main/releases/JumpingFlash-AX12-v0.2.1.apk).
 
 Includes Android gamepad gimbals/buttons, selectable input device, per-device axis/button mappings, optional axis-based switches, inversion/deadzone, manual center/endpoints calibration, dashboard, BLE scan/connect, telemetry/command transport, capability-gated modes, foreground/focus/enable-loss disarm, local demo and diagnostic export. No account, Internet permission or cloud service is required at runtime.
 
@@ -8,7 +8,7 @@ Includes Android gamepad gimbals/buttons, selectable input device, per-device ax
 
 ## Install / configure the AX12 profile
 
-1. Install/update [v0.2.0 APK](https://github.com/sammi2shoes/jumping-flash/raw/refs/heads/main/releases/JumpingFlash-AX12-v0.2.0.apk). Same app ID/signing key; no uninstall required. Open Controls, move the gimbals and choose the input device if needed.
+1. Install/update [v0.2.1 APK](https://github.com/sammi2shoes/jumping-flash/raw/refs/heads/main/releases/JumpingFlash-AX12-v0.2.1.apk). Same app ID/signing key; no uninstall required. Open Controls, move the gimbals and choose the input device if needed.
 2. The seven named rows are CH3 throttle, CH1 aileron, CH2 elevator, S2, SB, SC and SD. **Learn axis** detects the largest changed axis: move only that physical control. **Choose input** also supports manual axes, paired low/high keys for SB/SC, or a single latching key for SD. RC channel numbers do not identify Android axes. Verify mappings in the live monitor.
 3. For CH1/CH2 capture physical low, centered and high positions. For CH3 capture OFF/full endpoints. S2 and switches can initially use Android's reported range; capture low/high if their range differs. Reverse controls as needed. Low/mid/high SB means disarmed/drive-only/full; SC means hop/gyro/ambulate. Each physical input must be distinct. Calibrations/mappings save per Android device descriptor.
 4. S2 is a normalized height request; unmapped defaults to50%. CH1/CH2 mix preview is normalized forward±steering, not a gait or motor-angle command. Standing angles and real movement mixing remain robot-side work.
@@ -26,8 +26,14 @@ cd android/ax12
 ./gradlew assembleDebug lintDebug testDebugUnitTest
 ```
 
-Windows: `gradlew.bat assembleDebug lintDebug testDebugUnitTest`. Android Studio can open this directory directly. The wrapper pins Gradle8.10.2 plus distribution checksum; AGP8.8.2, Java17 bytecode, compile/target SDK35 and versionCode2 are pinned. Unit tests use JUnit4.13.2 and Robolectric4.14.1 with Android9/API28, including native-graphics screen renders. Android8–15 installation and AX12-specific inputs/BLE remain hardware checks, not claims from host tests.
+Windows: `gradlew.bat assembleDebug lintDebug testDebugUnitTest`. Android Studio can open this directory directly. The wrapper pins Gradle8.10.2 plus distribution checksum; AGP8.8.2, Java17 bytecode, compile/target SDK35 and versionCode3 are pinned. Unit tests use JUnit4.13.2 and Robolectric4.14.1 with Android9/API28, including native-graphics screen renders. Android8–15 installation and AX12-specific inputs/BLE remain hardware checks, not claims from host tests.
 
 The deliberately public **development-only** signing keystore/password (`android`) keeps debug installs update-compatible across build machines. It is not a production signing identity or a robot authentication credential. Keep the application ID and signing config for updates and increment versionCode/versionName. Future distribution outside this development project requires separate signing management.
 
 Debug APK: `app/build/outputs/apk/debug/app-debug.apk`. Test renders: `app/build/screenshots/`. BLE contract and receiver requirements: [AX12-BLE-PROTOCOL.md](../../docs/AX12-BLE-PROTOCOL.md).
+
+## Dial diagnostic patch v0.2.1
+
+The AX12 recognized gimbals/switches but the user observed no dial changes in v0.2.0 Diagnostics. That build filtered input to ACTION_MOVE from the selected joystick device, so absence there did not establish that Android exposes no dial events. v0.2.1 adds a separate, observational all-device/source generic-motion/key trace (including rotary ACTION_SCROLL), plus the full Android input-device/motion-range inventory in exports. Trace events never update robot input freshness, mappings or arming.
+
+Install over the existing APK; saved bindings/calibration are unchanged. In Diagnostics tap **Reset input trace / probe dials**, turn only S1/S2 through their travel, then **Export diagnostic log**. No need to relearn working controls. If the trace remains empty for the dials, a vendor input/firmware configuration path may be needed; no dial support is claimed from this patch alone. Relative scroll values are recorded, not automatically treated as absolute standing height.

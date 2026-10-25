@@ -193,6 +193,94 @@ public class ActivityTest {
   }
 
   @Test
+  public void rotaryScrollFromAnotherDeviceIsCapturedWithoutBecomingRobotInput() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity a = c.get();
+      android.view.MotionEvent.PointerProperties pp =
+          new android.view.MotionEvent.PointerProperties();
+      pp.id = 0;
+      android.view.MotionEvent.PointerCoords pc = new android.view.MotionEvent.PointerCoords();
+      pc.setAxisValue(android.view.MotionEvent.AXIS_SCROLL, 3f);
+      android.view.MotionEvent event =
+          android.view.MotionEvent.obtain(
+              1,
+              2,
+              android.view.MotionEvent.ACTION_SCROLL,
+              1,
+              new android.view.MotionEvent.PointerProperties[] {pp},
+              new android.view.MotionEvent.PointerCoords[] {pc},
+              0,
+              0,
+              1,
+              1,
+              77,
+              0,
+              android.view.InputDevice.SOURCE_ROTARY_ENCODER,
+              0);
+      a.dispatchGenericMotionEvent(event);
+      event.recycle();
+      String trace = ((InputTrace) get(a, "inputTrace")).dump();
+      assertTrue(trace.contains("device=77"));
+      assertTrue(trace.contains("ACTION_SCROLL"));
+      assertTrue(trace.contains("AXIS_SCROLL=3.0"));
+      assertEquals(0L, get(a, "inputAt"));
+      assertFalse((Boolean) get(a, "armedRequest"));
+    }
+  }
+
+  @Test
+  public void nonGamepadKeysAndInventoryAreDiagnosticOnly() throws Exception {
+    InputTrace trace = new InputTrace();
+    android.view.KeyEvent key =
+        new android.view.KeyEvent(
+            1,
+            2,
+            android.view.KeyEvent.ACTION_DOWN,
+            android.view.KeyEvent.KEYCODE_VOLUME_UP,
+            0,
+            0,
+            88,
+            0,
+            0,
+            android.view.InputDevice.SOURCE_KEYBOARD);
+    trace.key(key);
+    assertTrue(trace.dump().contains("device=88"));
+    assertTrue(trace.dump().contains("code=24"));
+    assertTrue(InputTrace.inventory().contains("INPUT DEVICE INVENTORY"));
+    trace.clear();
+    assertEquals(0, trace.keyEvents);
+    assertFalse(trace.dump().contains("device=88"));
+  }
+
+  @Test
+  public void diagnosticExportContainsAllSourceTraceAndDeviceInventory() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity a = c.get();
+      InputTrace trace = (InputTrace) get(a, "inputTrace");
+      trace.key(
+          new android.view.KeyEvent(
+              android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_VOLUME_UP));
+      java.io.File dir = new java.io.File("build/export-tests");
+      dir.mkdirs();
+      java.io.File file = new java.io.File(dir, "diagnostic.txt");
+      a.onActivityResult(
+          30,
+          android.app.Activity.RESULT_OK,
+          new android.content.Intent().setData(android.net.Uri.fromFile(file)));
+      String exported =
+          new String(
+              java.nio.file.Files.readAllBytes(file.toPath()),
+              java.nio.charset.StandardCharsets.UTF_8);
+      assertTrue(exported.contains("ANDROID INPUT DEVICE INVENTORY"));
+      assertTrue(exported.contains("ALL-SOURCE INPUT TRACE"));
+      assertTrue(exported.contains("code=24"));
+      assertTrue(exported.contains("Named profile"));
+    }
+  }
+
+  @Test
   public void telemetryRequiresSessionCrcAndNewSequence() throws Exception {
     try (ActivityController<MainActivity> c =
         Robolectric.buildActivity(MainActivity.class).setup()) {

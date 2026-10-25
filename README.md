@@ -72,6 +72,6 @@ Competition design priority: [minimum-latency launch/cutoff control](docs/CONTRO
 
 ## AX12 Android controller
 
-[Download Jumping Flash AX12 v0.2.0 APK](releases/JumpingFlash-AX12-v0.2.0.apk) · [Install/use/build instructions](android/ax12/README.md) · [BLE contract](docs/AX12-BLE-PROTOCOL.md). Includes configurable gimbals/buttons/axis switches, saved calibration, dashboard and diagnostic export. Matching Stick BLE firmware is still required for robot control; current MotorRecovery uses gamepad HID.
+[Download Jumping Flash AX12 v0.2.1 APK](releases/JumpingFlash-AX12-v0.2.1.apk) · [Install/use/build instructions](android/ax12/README.md) · [BLE contract](docs/AX12-BLE-PROTOCOL.md). Includes configurable gimbals/buttons/axis switches, saved calibration, dashboard and diagnostic export. Matching Stick BLE firmware is still required for robot control; current MotorRecovery uses gamepad HID.
 
 AX12 v0.2.0 adds the named CH3/CH1/CH2/S2/SB/SC/SD profile: three-state arming, three movement styles and independent two-edge jump requests. See the app instructions for mapping/calibration and the BLE v2 contract for companion firmware.
