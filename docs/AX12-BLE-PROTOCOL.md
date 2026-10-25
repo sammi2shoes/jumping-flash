@@ -1,46 +1,57 @@
-# AX12 BLE transport v1
+# AX12 BLE transport v2 — named RC controls
 
-This is the implemented Android client contract, not a claim that current MotorRecovery supports it. Current firmware uses Bluepad32/BTstack HID. A compatible server must be implemented and validated on the Stick before motion is available. Do not combine Espressif BLE libraries with the Bluepad32 BTstack build without establishing stack compatibility. Keep the existing tested MotorRecovery build available.
+Implemented Android client contract for APK0.2.0; matching Stick firmware remains unimplemented. MotorRecovery v0.16 accepts Bluepad32 HID, not this GATT protocol. Version1 is archived in history/AX12-BLE-PROTOCOL-v1.md. Version2 deliberately rejects version1 frames because style and payload meanings changed; never reinterpret old messages under the new layout.
 
-The user's AX12 gimbals worked in an ORQA FPV simulator, supporting standard Android joystick input as the initial approach; exact switch representation is unverified. The app supports both buttons and axes, observes all reported motion ranges and logs raw values. Vendor SDK requirements have not been established. The official product page could not be retrieved from this development environment; no proprietary AX12 API or Bluetooth role is assumed.
+## Operator profile
+
+| Control | Meaning |
+| --- | --- |
+| CH3 throttle | Spinner speed request0..100%; zero outside qualified fully armed state |
+| CH1 aileron | Steering -1..1 |
+| CH2 elevator | Forward -1..1 |
+| S2 knob | Standing-height request0..1; optional, default0.5 if unmapped |
+| SB low/middle/high | Disarmed / drive armed with spinner disabled / fully armed |
+| SC low/middle/high | Hop / gyro walk / ambulate |
+| SD either state change | One full-power jump request, in either armed SB state, independent of SC |
+
+RC channel names are labels, not Android axis IDs. Android mapping must be learned/selected and calibrated on the AX12. Switches may be axes, two keys for a three-position switch (neither key=middle), or one latching key for SD. Full-power jump is an action request, not current/torque/speed constants implemented in this APK. The receiver must provide the actual bounded launch/retraction behavior. No spinner ESC output or new motor motion code is included.
 
 ## GATT
 
-| Item | UUID | Properties |
-| --- | --- | --- |
-| Service | `de88c000-7865-4ce4-9a13-611fad7e0001` | Primary |
-| Command | `de88c001-7865-4ce4-9a13-611fad7e0001` | Write with response |
-| Telemetry | `de88c002-7865-4ce4-9a13-611fad7e0001` | Notify, CCCD required |
+Same UUIDs as v1; version is explicit in every frame. Primary service `de88c000-7865-4ce4-9a13-611fad7e0001`. Command characteristic `de88c001-7865-4ce4-9a13-611fad7e0001` supports write with response. Telemetry `de88c002-7865-4ce4-9a13-611fad7e0001` supports notify and standard CCCD.
 
-Frames are20bytes, fitting the default ATT MTU. All multibyte values are little endian. Client sends at nominal20ms intervals (50Hz), one acknowledged GATT write in flight, no pending application command queue. This is not measured radio/motor latency. Missing write callback150ms closes connection; telemetry age200ms disarms. Bluetooth setup times out10seconds. No auto-reconnect or enable. BLE characteristic access needs an authenticated/bonded peer policy in the future receiver; UUIDs, CRC and the random16bit session do **not** authenticate a controller.
+All frames20bytes, default ATT MTU compatible. Multibyte values little endian. Nominal50Hz latest-command heartbeat, one acknowledged GATT write in flight; SB/SC changes and SD requests attempt an immediate write if idle. No queued stream of old targets. Missing write callback150ms closes link; telemetry age200ms disarms. These are app timing policies, not measured radio/motor latency. No automatic reconnect/arm.
 
 | Offset | Bytes | Command (type1) | Telemetry (type0x81) |
 | --- | --- | --- | --- |
 | 0 | 2 | ASCII JF | ASCII JF |
-| 2 | 1 | Version1 | Version1 |
+| 2 | 1 | Version2 | Version2 |
 | 3 | 1 | 1 | 0x81 |
-| 4 | 2 | Independent sequence modulo65536 | Independent sequence modulo65536 |
-| 6 | 1 | bit0 arm-request, bit1 one-shot cycle | bit0 ready, bit1 reference valid, bit2 actually armed, bit3 fault |
-| 7 | 1 | mode:0manual,1jump,2gyro | receiver's selected mode |
-| 8 | 2 | signed forward/extension -1000..1000 | left measured leg angle, signed centidegrees |
-| 10 | 2 | signed turn -1000..1000 | right measured leg angle, signed centidegrees |
-| 12 | 2 | reserved zero | battery millivolts |
-| 14 | 1 | reserved zero | fault byte (0 means none) |
-| 15 | 1 | reserved zero | supported mode bitmask:1manual,2jump,4gyro |
-| 16 | 2 | random nonzero session | echo current command session |
+| 4 | 2 | Sequence modulo65536 | Independent sequence modulo65536 |
+| 6 | 1 | bit0 drive-arm request; bit1 full-power jump one-shot; bit2 spinner-arm request | bit0 ready; bit1 reference valid; bit2 actually drive-armed; bit3 fault; bit4 actually spinner-armed |
+| 7 | 1 | style0hop,1gyro,2ambulate | receiver's selected style |
+| 8 | 2 | signed forward -1000..1000 | left measured leg angle, signed centidegrees |
+| 10 | 2 | signed steering -1000..1000 | right measured leg angle, signed centidegrees |
+| 12 | 1 | throttle0..255; zero unless spinner-arm requested | battery millivolts low byte |
+| 13 | 1 | height0..255 while drive-arm requested; zero otherwise | battery millivolts high byte |
+| 14 | 1 | requested SB0/1/2; informational, never sufficient to arm | fault byte |
+| 15 | 1 | reserved zero | supported capability bits: bit0hop, bit1gyro, bit2ambulate, bit3spinner, bit4full-power jump |
+| 16 | 2 | random nonzero session | echo command session |
 | 18 | 2 | CRC16/CCITT-FALSE over bytes0..17 | same |
 
-CRC polynomial0x1021, init0xffff, no reflection, no final xor; golden `123456789`→0x29b1. Session changes on explicit new BLE connection. Client rejects malformed/CRC/wrong-session frames, duplicate/backward sequence deltas (valid delta1..32767), and does not refresh freshness for rejected frames. Sequence wrap65535→0 is valid. A new receiver session must be established while disarmed; reconnect cannot restore previous motion/reference trust without robot-side verification.
+CRC polynomial0x1021, init0xffff, no reflection/final xor. Golden `123456789`→0x29b1. Malformed, wrong-session, CRC-error and duplicate/backward sequence frames never refresh freshness; valid modulo delta1..32767, including65535→0. UUID/CRC/16bit session are not authentication; future receiver needs an authenticated/bonded peer policy.
 
-Disarmed commands zero axes and cycle flag. Nonfinite control values cannot produce an arm bit. One-shot cycle is asserted in one submitted frame, not repeatedly retried or resumed. Receiver must deduplicate by session/sequence and reject unsupported/invalid mode requests. A lost one-shot can therefore be missed rather than replayed later. Arm-request is distinct from confirmed armed telemetry; the client waits at most500ms for arm confirmation. It disarms on loss of robot readiness/reference/mode capability, reported fault, held enable, input device, window focus, foreground or fresh telemetry. Changing mode or control mapping also disarms.
+## Arming and edge semantics
 
-## Required companion behavior before any motor test
+- SB0 zeroes all active requests and cancels pending jump. SB1 can drive/jump but always transmits spinner-arm off and throttle0. SB2 can additionally request spinner arm only with spinner capability and a throttle-low qualification on that entry; drive arm must already be acknowledged before spinner-arm is sent. A nonfinite throttle cannot request spinner arm.
+- First arming requires an observed SB0 followed by a fresh SB transition to1/2, calibrated centered CH1/CH2, distinct mapped inputs, fresh ready/reference/fault-free telemetry and support for the selected SC style. Entering SB2 requires calibrated throttle endpoints and throttle≤3%. Dropping high throttle later does not silently complete a blocked SB2 entry: cycle the switch again. SB1→2 also requires neutral drive inputs and low calibrated throttle to qualify the spinner. SB2→1 preserves drive while immediately suppressing spinner request.
+- STOP, focus/foreground/device/link loss, telemetry faults or expiry discard all pending actions and require SB0 again. An initial armed SB value is not an arm edge. Arm must be confirmed by telemetry within500ms. Selected/confirmed states are distinct on the dashboard.
+- Changing SC while drive-armed disarms/cancels; cycle SB through0 to rearm in the new style. SC never changes the meaning of SD.
+- SD's first known value is a baseline. Each later0↔1 transition can request one full-power jump only with confirmed drive arm, SB1/2, fresh telemetry and capability bit4. Edges while disarmed, reconnecting, unsupported, or simultaneous with SB/SC changes are discarded and not replayed. Repeated identical reports do not repeat a jump. A second edge while a jump is still pending is discarded; no jump queue.
+- A jump flag appears in one submitted frame. Receiver must deduplicate by session/sequence and define busy-cycle behavior. A lost one-shot can be missed, never retried on reconnect. Nonfinite axes or height suppress drive arm; SB1/2 selector bytes alone cannot authorize output.
 
-- No boot enable, auto-zero, calibration, fault clearing, erases or saves. Preserve the fixed0..80deg reference procedure and RS05-specific protocol, current/speed limits and already tested motor watchdog.
-- Reject bad lengths, headers, versions, CRC, sequences, sessions and values without refreshing the command deadline. Reserve bits/bytes must be checked. Accept a new session only while stopped.
-- Independently enforce a bounded command timeout, initially100ms, even if the Android process freezes or a STOP frame is lost. Link loss must stop every implemented actuator, discard cycle/target state and require neutral controls plus a deliberate new arm request. Keep the CAN watchdog as an additional independent fallback.
-- Only advertise genuinely implemented modes. No fake ready, reference or armed telemetry. A single-motor rig must not claim coordinated two-leg jump or gyro gait support. Future spinner control needs an explicit protocol extension and its own output failsafe.
-- Android joystick events may arrive only on change. Last input-event age is diagnostic, not a periodic controller heartbeat. The app checks controller presence/enable/focus; its heartbeat does not prove a stationary input driver is healthy. Receiver deadlines guard app/radio loss, not an undetectable frozen axis report.
-- Confirm power/reset/reference behavior and link-loss stopping on the hardware before replacing the tested gamepad path.
+## Required companion implementation
 
-No changes to the tested motor firmware were made for this APK.
+Preserve existing manual0..80deg reference, no boot enable/auto-zero/save/calibration/fault-clear, RS05-specific scales and verified CAN watchdog. Validate every field/version/length/CRC/session/sequence and capability before refreshing a bounded command deadline (initial target100ms). Stop all implemented actuators on timeout/link loss and discard old motion/cycles. New sessions are accepted only while stopped. Advertise only physically implemented modes; one leg must not claim coordinated gait/jump validation. Spinner needs verified AM32 PWM/DShot output and its own failsafe. App-side CH1/CH2 differential mixing is a normalized preview, not actual gait planning or motor-angle targets.
+
+Android may emit stationary joystick values only on change. Input age is diagnostic, not a guaranteed input-device heartbeat; controller presence/enable/focus checks cannot detect every frozen input driver. Independently test receiver deadlines, power/reset/reference handling, spinner suppression, SD edges and loaded stopping before replacing the tested gamepad path. No tested Stick motor firmware was changed by this APK update.

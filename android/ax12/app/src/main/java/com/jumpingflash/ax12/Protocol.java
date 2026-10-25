@@ -43,7 +43,7 @@ public final class Protocol {
     byte[] b = new byte[20];
     b[0] = 74;
     b[1] = 70;
-    b[2] = 1;
+    b[2] = 2;
     b[3] = 1;
     put(b, 4, sequence);
     b[6] = (byte) ((armed ? 1 : 0) | (launch && armed ? 2 : 0));
@@ -55,12 +55,37 @@ public final class Protocol {
     return b;
   }
 
+  public static byte[] radioCommand(
+      int sequence,
+      int session,
+      boolean armed,
+      int sb,
+      int style,
+      float forward,
+      float turn,
+      float throttle,
+      float height,
+      boolean spinnerQualified,
+      boolean fullJump) {
+    armed = armed && sb > 0 && sb <= 2 && Float.isFinite(height);
+    byte[] b = command(sequence, session, armed, style, forward, turn, fullJump);
+    boolean drive = (b[6] & 1) != 0;
+    boolean spinner = drive && sb == 2 && spinnerQualified && Float.isFinite(throttle);
+    if (spinner) b[6] |= 4;
+    b[12] = (byte) (spinner ? Math.round(Math.max(0, Math.min(1, throttle)) * 255) : 0);
+    b[13] = (byte) (drive ? Math.round(Math.max(0, Math.min(1, height)) * 255) : 0);
+    b[14] = (byte) (sb >= 0 && sb <= 2 ? sb : 0);
+    b[15] = 0;
+    put(b, 18, crc(b, 18));
+    return b;
+  }
+
   public static boolean valid(byte[] b, int type) {
     return b != null
         && b.length == 20
         && b[0] == 74
         && b[1] == 70
-        && b[2] == 1
+        && b[2] == 2
         && (b[3] & 255) == type
         && u16(b, 18) == crc(b, 18);
   }

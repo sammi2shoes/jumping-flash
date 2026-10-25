@@ -62,6 +62,445 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   private int enableAxis = -1, cycleAxis = -1;
   private boolean enableAxisLow = false, cycleAxisLow = false, cycleAxisWasHeld = false;
 
+  private boolean radioActive = true;
+  private final RadioProfile radio = new RadioProfile();
+  private RadioProfile.Snapshot radioState = new RadioProfile.Snapshot();
+  private final RadioArming radioArming = new RadioArming();
+  private final Set<Integer> seenKeys = new HashSet<>();
+  private TextView radioInfo;
+  private int learningRole = -1;
+  private final Map<Integer, Float> learningAxes = new TreeMap<>();
+
+  private boolean driveEnable() {
+    return radioActive ? radioState.sb > 0 : enableHeld();
+  }
+
+  private void radioDashboard() {
+    summary = text("", 18);
+    body.addView(summary);
+    sticks = new StickView();
+    body.addView(sticks, new LinearLayout.LayoutParams(-1, 160));
+    radioInfo = text("", 16);
+    body.addView(radioInfo);
+    modeLabel =
+        text(
+            "SB controls arming • SC selects movement style • SD toggles request full-power jump",
+            16);
+    body.addView(modeLabel);
+    body.addView(
+        button(
+            "Disarm / cancel pending jump",
+            () -> {
+              disarm("Operator STOP; cycle SB to disarmed before rearming");
+              sendFrame();
+            }));
+    body.addView(
+        text(
+            "CH3 spinner throttle is blocked in SB disarmed/drive-only. Enter full arm with"
+                + " throttle low. SD triggers on either edge in either armed state, in any movement"
+                + " style. No jump is queued while disarmed or disconnected. Robot firmware must"
+                + " implement the requested actions.",
+            14));
+    body.addView(
+        button(
+            demo ? "Exit DEMO" : "Enter DEMO • inputs only / no robot output",
+            () -> {
+              disarm("Demo changed");
+              ble.close();
+              demo = !demo;
+              linkStatus = demo ? "DEMO — inputs only" : "Disconnected";
+              showTab(0);
+            }));
+  }
+
+  private void radioControls() {
+    body.addView(text("AX12 named channel profile", 20));
+    body.addView(
+        text(
+            deviceName
+                + "\n"
+                + "RC channel labels are not Android axis IDs. Learn one control at a time, or"
+                + " choose its input manually. For CH1/CH2 capture low, centered, high. For CH3"
+                + " capture throttle-off and full-throttle endpoints. S2 and switch endpoints can"
+                + " use reported Android ranges or captured endpoints.",
+            14));
+    body.addView(button("Choose input device", this::chooseInput));
+    for (int role = 0; role < 7; role++) {
+      final int r = role;
+      RadioProfile.Binding b = radio.binding[r];
+      body.addView(text(RadioProfile.LABELS[r] + "\n" + bindingDescription(b), 16));
+      LinearLayout select = row();
+      addButton(select, "Learn axis", () -> startRadioLearn(r));
+      addButton(select, "Choose input", () -> chooseRadioSource(r));
+      CheckBox inv = new CheckBox(this);
+      inv.setText("Reverse");
+      inv.setTextColor(TEXT);
+      inv.setChecked(b.inverted);
+      inv.setOnCheckedChangeListener(
+          (v, checked) -> {
+            disarm("RC mapping changed");
+            b.inverted = checked;
+            saveRadio();
+          });
+      select.addView(
+          inv,
+          new LinearLayout.LayoutParams(
+              (int) (120 * getResources().getDisplayMetrics().density), -2));
+      body.addView(select);
+      LinearLayout capture = row();
+      addButton(
+          capture,
+          r == RadioProfile.THROTTLE ? "Capture OFF" : "Capture low",
+          () -> captureRadio(r, 1));
+      if (r == RadioProfile.AILERON || r == RadioProfile.ELEVATOR)
+        addButton(capture, "Capture center", () -> captureRadio(r, 2));
+      addButton(
+          capture,
+          r == RadioProfile.THROTTLE ? "Capture full" : "Capture high",
+          () -> captureRadio(r, 4));
+      body.addView(capture);
+    }
+    body.addView(
+        text(
+            "SB low/mid/high = disarmed/drive-only/full. SC low/mid/high = hop/gyro/ambulate."
+                + " Reverse a switch if needed. SD's initial state establishes a baseline; both"
+                + " later edges request a jump. S2 is a normalized height request, not a measured"
+                + " standing height.",
+            14));
+    radioInfo = text("", 14);
+    body.addView(radioInfo);
+    rawView = text("", 14);
+    body.addView(rawView);
+  }
+
+  private String bindingDescription(RadioProfile.Binding b) {
+    if (b.axis >= 0)
+      return MotionEvent.axisToString(b.axis)
+          + String.format(
+              Locale.US,
+              " • low %.3f / center %.3f / high %.3f • captured %d/7",
+              b.low,
+              b.center,
+              b.high,
+              b.captured);
+    if (b.highKey >= 0)
+      return b.lowKey >= 0
+          ? "Low "
+              + KeyEvent.keyCodeToString(b.lowKey)
+              + " / middle neither / high "
+              + KeyEvent.keyCodeToString(b.highKey)
+          : KeyEvent.keyCodeToString(b.highKey) + " • up/down";
+    return "UNMAPPED";
+  }
+
+  private void loadRadio() {
+    radioArming.reset();
+    radioState = new RadioProfile.Snapshot();
+    seenKeys.clear();
+    for (int i = 0; i < 7; i++) {
+      RadioProfile.Binding b = radio.binding[i];
+      String k = prefix() + "rc." + i + ".";
+      b.axis = prefs.getInt(k + "axis", -1);
+      b.lowKey = prefs.getInt(k + "lowKey", -1);
+      b.highKey = prefs.getInt(k + "highKey", -1);
+      b.low = prefs.getFloat(k + "low", -1);
+      b.center = prefs.getFloat(k + "center", 0);
+      b.high = prefs.getFloat(k + "high", 1);
+      b.inverted = prefs.getBoolean(k + "reverse", false);
+      b.captured = prefs.getInt(k + "captured", 0);
+    }
+  }
+
+  private void saveRadio() {
+    if (inputId < 0) return;
+    android.content.SharedPreferences.Editor e = prefs.edit();
+    for (int i = 0; i < 7; i++) {
+      RadioProfile.Binding b = radio.binding[i];
+      String k = prefix() + "rc." + i + ".";
+      e.putInt(k + "axis", b.axis)
+          .putInt(k + "lowKey", b.lowKey)
+          .putInt(k + "highKey", b.highKey)
+          .putFloat(k + "low", b.low)
+          .putFloat(k + "center", b.center)
+          .putFloat(k + "high", b.high)
+          .putBoolean(k + "reverse", b.inverted)
+          .putInt(k + "captured", b.captured);
+    }
+    e.apply();
+    log("Named RC mapping saved: " + radioMappingText());
+  }
+
+  private String radioMappingText() {
+    StringBuilder s = new StringBuilder();
+    for (int i = 0; i < 7; i++)
+      s.append(RadioProfile.LABELS[i])
+          .append('=')
+          .append(bindingDescription(radio.binding[i]))
+          .append(';');
+    return s.toString();
+  }
+
+  private void startRadioLearn(int role) {
+    if (axes.isEmpty()) {
+      toast("Move a gimbal first so Android input ranges are known.");
+      return;
+    }
+    disarm("Learning RC axis");
+    learningRole = role;
+    learningAxes.clear();
+    learningAxes.putAll(axes);
+    toast(
+        "Move ONLY "
+            + RadioProfile.LABELS[role]
+            + " through a large part of its travel. Use Choose input for key-based switches.");
+  }
+
+  private void learnRadioAxis() {
+    if (learningRole < 0) return;
+    float best = .2f;
+    int selected = -1;
+    for (int id : axes.keySet()) {
+      float span = Math.abs(maxs.getOrDefault(id, 1f) - mins.getOrDefault(id, -1f));
+      if (span < .0001f) continue;
+      float delta = Math.abs(axes.get(id) - learningAxes.getOrDefault(id, axes.get(id))) / span;
+      if (delta > best) {
+        best = delta;
+        selected = id;
+      }
+    }
+    if (selected >= 0) {
+      int r = learningRole;
+      learningRole = -1;
+      assignRadioAxis(r, selected);
+      toast("Learned " + MotionEvent.axisToString(selected));
+      showTab(1);
+    }
+  }
+
+  private void assignRadioAxis(int role, int id) {
+    disarm("RC input mapping changed");
+    RadioProfile.Binding b = radio.binding[role];
+    b.axis = id;
+    b.lowKey = b.highKey = -1;
+    b.low = mins.getOrDefault(id, -1f);
+    b.high = maxs.getOrDefault(id, 1f);
+    b.center = (b.low + b.high) / 2;
+    b.captured = 0;
+    b.inverted = false;
+    saveRadio();
+    radioState = new RadioProfile.Snapshot();
+  }
+
+  private void chooseRadioSource(int role) {
+    List<Integer> ids = axisOptions();
+    List<String> labels = new ArrayList<>();
+    labels.add("Unmapped");
+    for (int id : ids) labels.add(MotionEvent.axisToString(id));
+    if (role >= RadioProfile.SB)
+      labels.add(
+          role == RadioProfile.SD
+              ? "Use one latching key"
+              : "Use two keys (low/high; neither is middle)");
+    new AlertDialog.Builder(this)
+        .setTitle(RadioProfile.LABELS[role])
+        .setItems(
+            labels.toArray(new String[0]),
+            (d, n) -> {
+              if (n == 0) {
+                disarm("RC input unmapped");
+                radio.binding[role] = new RadioProfile.Binding();
+                saveRadio();
+                showTab(1);
+              } else if (n <= ids.size()) {
+                assignRadioAxis(role, ids.get(n - 1));
+                showTab(1);
+              } else chooseRadioKey(role, -1);
+            })
+        .show();
+  }
+
+  private void chooseRadioKey(int role, int low) {
+    TreeSet<Integer> codes = new TreeSet<>(seenKeys);
+    for (int k = KeyEvent.KEYCODE_BUTTON_A; k <= KeyEvent.KEYCODE_BUTTON_MODE; k++) codes.add(k);
+    for (int k = KeyEvent.KEYCODE_BUTTON_1; k <= KeyEvent.KEYCODE_BUTTON_16; k++) codes.add(k);
+    for (int k = KeyEvent.KEYCODE_DPAD_UP; k <= KeyEvent.KEYCODE_DPAD_CENTER; k++) codes.add(k);
+    List<Integer> ids = new ArrayList<>(codes);
+    String[] names = new String[ids.size()];
+    for (int i = 0; i < names.length; i++)
+      names[i] = KeyEvent.keyCodeToString(ids.get(i)) + " (" + ids.get(i) + ")";
+    new AlertDialog.Builder(this)
+        .setTitle(
+            role == RadioProfile.SD
+                ? "SD latching key"
+                : low < 0 ? "Key pressed in LOW position" : "Key pressed in HIGH position")
+        .setItems(
+            names,
+            (d, n) -> {
+              int key = ids.get(n);
+              if (role != RadioProfile.SD && low < 0) {
+                chooseRadioKey(role, key);
+                return;
+              }
+              if (key == low) {
+                toast("Low and high must use different keys");
+                return;
+              }
+              disarm("RC key mapping changed");
+              RadioProfile.Binding b = new RadioProfile.Binding();
+              b.lowKey = low;
+              b.highKey = key;
+              radio.binding[role] = b;
+              saveRadio();
+              radioState = new RadioProfile.Snapshot();
+              showTab(1);
+            })
+        .show();
+  }
+
+  private void captureRadio(int role, int which) {
+    RadioProfile.Binding b = radio.binding[role];
+    Float v = axes.get(b.axis);
+    if (v == null || !Float.isFinite(v)) {
+      toast("Map an axis and move the control first.");
+      return;
+    }
+    disarm("RC calibration changed");
+    if (which == 1) b.low = v;
+    else if (which == 2) b.center = v;
+    else b.high = v;
+    b.captured |= which;
+    saveRadio();
+    showTab(1);
+  }
+
+  private String radioArmBlock() {
+    if (demo) return "DEMO: no robot output";
+    if (!foreground || !hasWindowFocus() || InputDevice.getDevice(inputId) == null)
+      return "App focus and controller required";
+    if (!radioState.driveKnown() || !Float.isFinite(radioState.height))
+      return "Map and exercise CH1, CH2, SB and SC; check S2 if mapped";
+    if (!radio.driveCalibrated() || !radio.distinct())
+      return "Capture CH1/CH2 low, center, high; use distinct inputs";
+    if (Math.abs(forward()) > .02f || Math.abs(turn()) > .02f)
+      return "Center CH1/CH2 before arming";
+    if (!freshTelemetry() || (robotFlags & 3) != 3 || (robotFlags & 8) != 0 || lastFaults != 0)
+      return "Fresh ready, referenced, fault-free robot required";
+    if ((capabilities & (1 << mode)) == 0)
+      return "Robot does not implement selected SC movement style";
+    return null;
+  }
+
+  private void updateRadio() {
+    RadioProfile.Snapshot old = radioState;
+    radioState = radio.sample(axes, keys, seenKeys, old, deadzone);
+    if (radioState.sc >= 0) mode = radioState.sc;
+    if (armedRequest
+        && (!radioState.driveKnown()
+            || radioState.sb == 0
+            || !Float.isFinite(radioState.height)
+            || radioState.sc != old.sc))
+      disarm("SB disarmed, invalid controls, or SC style changed; cycle SB through disarmed");
+    boolean conditions = radioArmBlock() == null;
+    if (radioState.sb == 2 && (radio.binding[RadioProfile.THROTTLE].captured & 5) != 5)
+      conditions = false;
+    radioArming.observe(
+        radioState, conditions, armedRequest && freshTelemetry() && (robotFlags & 4) != 0);
+    if (radioArming.armEdge) requestRadioArm();
+    else if (old.sb != radioState.sb && radioState.sb > 0 && !armedRequest) {
+      String why = radioArmBlock();
+      lastReason =
+          why != null
+              ? why
+              : radioState.sb == 2 && (!radioArming.spinnerLowQualified)
+                  ? "Full arm blocked: calibrate CH3, set throttle low, then cycle SB through"
+                      + " disarmed"
+                  : "Cycle SB through disarmed before arming";
+    }
+    if (radioArming.jumpEdge) requestRadioJump();
+    if (old.sb != radioState.sb || old.sc != radioState.sc || radioArming.jumpEdge) sendFrame();
+  }
+
+  private void requestRadioArm() {
+    String why = radioArmBlock();
+    if (why == null && !radioArming.armEdge)
+      why = "Cycle SB through disarmed, then select drive/full arm";
+    if (why != null) {
+      lastReason = why;
+      log("RC arm blocked: " + why);
+      return;
+    }
+    armedRequest = true;
+    armAt = SystemClock.elapsedRealtime();
+    lastReason = "SB arm request; waiting for robot confirmation";
+    log(lastReason);
+  }
+
+  private void requestRadioJump() {
+    if (!radioArming.jumpEdge
+        || !armedRequest
+        || radioState.sb <= 0
+        || !freshTelemetry()
+        || (robotFlags & 4) == 0
+        || (capabilities & 16) == 0) {
+      log(
+          "SD edge ignored: confirmed drive arm and robot full-jump capability required; no request"
+              + " queued");
+      return;
+    }
+    if (launchPending) {
+      log("SD edge ignored: previous jump request still pending");
+      return;
+    }
+    launchPending = true;
+    log("SD FULL-POWER JUMP request • " + RadioProfile.STYLE_NAMES[mode]);
+  }
+
+  private void renderRadio() {
+    String sb = radioState.sb < 0 ? "UNMAPPED / UNKNOWN" : RadioProfile.ARM_NAMES[radioState.sb],
+        sc = radioState.sc < 0 ? "UNMAPPED / UNKNOWN" : RadioProfile.STYLE_NAMES[radioState.sc];
+    if (modeLabel != null)
+      modeLabel.setText(
+          "SB: "
+              + sb
+              + "   SC: "
+              + sc
+              + "\nDrive: "
+              + (armedRequest && freshTelemetry() && (robotFlags & 4) != 0
+                  ? "confirmed armed"
+                  : "disarmed / unconfirmed")
+              + "   Spinner: "
+              + (freshTelemetry() && (robotFlags & 16) != 0
+                  ? "robot reports armed"
+                  : "disabled / unconfirmed"));
+    float[] mix = RadioProfile.mixPreview(forward(), turn());
+    String description =
+        String.format(
+            Locale.US,
+            "CH3 throttle: %s   S2 height: %s\n"
+                + "CH1 steering: %s   CH2 forward: %s\n"
+                + "SD: %s • either edge requests jump\n"
+                + "Normalized mix preview L/R: %s / %s (not motor targets)",
+            percent(radioState.throttle),
+            radio.binding[RadioProfile.HEIGHT].axis < 0
+                ? "unmapped (50% default)"
+                : percent(radioState.height),
+            signedDisplay(turn()),
+            signedDisplay(forward()),
+            radioState.sd < 0 ? "unknown" : Integer.toString(radioState.sd),
+            signedDisplay(mix[0]),
+            signedDisplay(mix[1]));
+    if (radioInfo != null) radioInfo.setText(description);
+    if (rawView != null) rawView.append("\n" + description);
+  }
+
+  private String signedDisplay(float v) {
+    return Float.isFinite(v) ? String.format(Locale.US, "%+.3f", v) : "unknown";
+  }
+
+  private String percent(float v) {
+    return Float.isFinite(v) ? String.format(Locale.US, "%.0f%%", v * 100) : "unknown";
+  }
+
   private boolean axisHeld(int id, boolean low) {
     if (!axes.containsKey(id)) return false;
     float v = axes.get(id), mid = (mins.getOrDefault(id, -1f) + maxs.getOrDefault(id, 1f)) / 2;
@@ -114,7 +553,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     ((InputManager) getSystemService(INPUT_SERVICE)).registerInputDeviceListener(this, handler);
     detectInput();
     showTab(0);
-    log("AX12 app 0.1.0. No spinner output or automatic arming.");
+    log("AX12 app 0.2.0. Named RC profile; robot-side spinner/jump outputs not implemented.");
     handler.post(pump);
   }
 
@@ -153,6 +592,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
 
   private void showTab(int which) {
     tab = which;
+    learningRole = -1;
+    radioInfo = null;
     LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
     root.setFitsSystemWindows(true);
@@ -191,6 +632,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void dashboard() {
+    if (radioActive) {
+      radioDashboard();
+      return;
+    }
     summary = text("", 18);
     body.addView(summary);
     sticks = new StickView();
@@ -243,6 +688,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void controls() {
+    if (radioActive) {
+      radioControls();
+      return;
+    }
     body.addView(text("Game controller mapping • saved per device", 20));
     body.addView(
         text(
@@ -629,6 +1078,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       maxs.put(id, prefs.getFloat(prefix() + id + "max", r.getMax()));
       centers.put(id, prefs.getFloat(prefix() + id + "center", (r.getMin() + r.getMax()) / 2));
     }
+    loadRadio();
     log("Input: " + deviceName + " descriptor=" + descriptor + " sources=" + d.getSources());
   }
 
@@ -703,10 +1153,12 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private float forward() {
+    if (radioActive) return radioState.elevator;
     return normalized(forwardAxis, invertForward);
   }
 
   private float turn() {
+    if (radioActive) return radioState.aileron;
     return normalized(turnAxis, invertTurn);
   }
 
@@ -728,6 +1180,11 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       }
       inputAt = SystemClock.elapsedRealtime();
       inputEvents++;
+      if (radioActive) {
+        learnRadioAxis();
+        updateRadio();
+        return true;
+      }
       if (!enableHeld()) {
         disarm("Enable released");
         sendFrame();
@@ -755,6 +1212,12 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       else keys.remove(key);
       inputAt = SystemClock.elapsedRealtime();
       inputEvents++;
+      seenKeys.add(key);
+      if (radioActive) {
+        updateRadio();
+        log("KEY " + KeyEvent.keyCodeToString(key) + " " + (down ? "down" : "up"));
+        return true;
+      }
       if (enableAxis < 0 && key == enableKey && !down) {
         disarm("Enable released");
         sendFrame();
@@ -771,6 +1234,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void requestArm() {
+    if (radioActive) {
+      requestRadioArm();
+      return;
+    }
     if (demo) {
       toast("DEMO: inputs displayed; arming and Bluetooth commands disabled.");
       return;
@@ -808,6 +1275,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void requestLaunch() {
+    if (radioActive) {
+      requestRadioJump();
+      return;
+    }
     if (!armedRequest
         || !freshTelemetry()
         || (robotFlags & 4) == 0
@@ -829,6 +1300,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     boolean changed = armedRequest || launchPending;
     armedRequest = false;
     launchPending = false;
+    radioArming.reset();
     lastReason = why;
     if (changed) log("DISARM: " + why);
   }
@@ -854,7 +1326,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     rightDeg = Protocol.s16(b, 10) / 100.f;
     volts = Protocol.u16(b, 12) / 1000.f;
     lastFaults = b[14] & 255;
-    capabilities = b[15] & 7;
+    capabilities = b[15] & 31;
     if (armedRequest
         && ((b[7] & 255) != mode
             || (capabilities & (1 << mode)) == 0
@@ -866,18 +1338,36 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void sendFrame() {
-    if (!Float.isFinite(forward()) || !Float.isFinite(turn())) disarm("Invalid controller values");
+    if (!Float.isFinite(forward()) || !Float.isFinite(turn()))
+      disarm(
+          radioActive
+              ? "RC inputs unmapped or calibration incomplete"
+              : "Invalid controller values");
+    if (radioActive && (capabilities & 16) == 0) launchPending = false;
     if (demo || !ble.ready || ble.busy) return;
     boolean allowed =
         armedRequest
             && foreground
             && hasWindowFocus()
-            && enableHeld()
+            && driveEnable()
             && freshTelemetry()
             && InputDevice.getDevice(inputId) != null;
     byte[] frame =
-        Protocol.command(
-            sequence, session, allowed, mode, forward(), turn(), launchPending && allowed);
+        radioActive
+            ? Protocol.radioCommand(
+                sequence,
+                session,
+                allowed,
+                radioState.sb,
+                mode,
+                forward(),
+                turn(),
+                radioState.throttle,
+                radioState.height,
+                radioArming.spinnerLowQualified && (capabilities & 8) != 0 && (robotFlags & 4) != 0,
+                launchPending && allowed)
+            : Protocol.command(
+                sequence, session, allowed, mode, forward(), turn(), launchPending && allowed);
     if (ble.send(frame)) {
       sequence = (sequence + 1) & 65535;
       txCount++;
@@ -892,7 +1382,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
           long now = SystemClock.elapsedRealtime();
           if (foreground) {
             if (armedRequest
-                && (!freshTelemetry() || !enableHeld() || InputDevice.getDevice(inputId) == null))
+                && (!freshTelemetry() || !driveEnable() || InputDevice.getDevice(inputId) == null))
               disarm("Input enable/device or telemetry lost");
             if (armedRequest && (robotFlags & 4) == 0 && now - armAt > 500)
               disarm("Arm confirmation timeout");
@@ -910,10 +1400,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                 log(
                     String.format(
                         Locale.US,
-                        "INPUT forward=%.4f turn=%.4f enable=%s axes=%s keys=%s",
+                        "INPUT forward=%.4f turn=%.4f drive_enable=%s axes=%s keys=%s",
                         forward(),
                         turn(),
-                        enableHeld(),
+                        driveEnable(),
                         axes,
                         keys));
                 lastInputLog = inputAt;
@@ -982,7 +1472,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                   "Forward %.3f  Turn %.3f  Enable %s\n",
                   forward(),
                   turn(),
-                  enableHeld()))
+                  driveEnable()))
           .append("Input events ")
           .append(inputEvents)
           .append("  last change ")
@@ -1013,6 +1503,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       }
       rawView.setText(s);
     }
+    if (radioActive) renderRadio();
     if (sticks != null) sticks.invalidate();
   }
 
@@ -1025,7 +1516,9 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     super.onResume();
     foreground = true;
     keys.clear();
+    seenKeys.clear();
     axes.clear();
+    radioState = new RadioProfile.Snapshot();
     cycleAxisWasHeld = true;
     disarm("Foreground resumed; deliberate rearm required");
     detectInput();
@@ -1048,6 +1541,9 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       disarm("App lost focus");
       sendFrame();
       keys.clear();
+      radioState = new RadioProfile.Snapshot();
+      seenKeys.clear();
+      axes.clear();
     }
   }
 
@@ -1092,7 +1588,9 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
         if (out == null) throw new IOException("No output stream");
         String header =
-            "Jumping Flash AX12 0.1.0\nDevice "
+            "Jumping Flash AX12 0.2.0\nNamed profile "
+                + radioMappingText()
+                + "\nDevice "
                 + deviceName
                 + "\nDescriptor "
                 + descriptor
@@ -1144,11 +1642,15 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       c.drawLine(x - r, y, x + r, y, p);
       c.drawLine(x, y - r, x, y + r, p);
       p.setColor(ACCENT);
-      c.drawCircle(x + turn() * r, y - forward() * r, 12, p);
+      c.drawCircle(
+          x + (Float.isFinite(turn()) ? turn() : 0) * r,
+          y - (Float.isFinite(forward()) ? forward() : 0) * r,
+          12,
+          p);
       p.setColor(TEXT);
       p.setTextSize(22);
       c.drawText(
-          String.format(Locale.US, "Forward %+.2f   Turn %+.2f", forward(), turn()), 12, 28, p);
+          "Forward " + signedDisplay(forward()) + "   Turn " + signedDisplay(turn()), 12, 28, p);
     }
   }
 }
