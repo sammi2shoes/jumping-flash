@@ -53,4 +53,26 @@ public class ProtocolTest {
     }
     assertEquals(0, Protocol.command(0, 1, true, 9, 1, 1, true)[6]);
   }
+
+  @Test
+  public void watchdogRequestIsAnExplicitDisarmedZeroSpeedPacket() {
+    byte[] b = Protocol.watchdogCheck(91, 123, 2);
+    assertTrue(Protocol.valid(b, 1));
+    assertEquals(91, Protocol.u16(b, 4));
+    assertEquals(123, Protocol.u16(b, 16));
+    assertEquals(0, b[6]);
+    assertEquals(0, b[14]);
+    assertEquals(1, b[15]);
+    for (int i = 8; i <= 13; i++) assertEquals(0, b[i]);
+  }
+
+  @Test
+  public void directionStopCancelsMaintenanceAndNeverRequestsArm() {
+    byte[] b = Protocol.directionStop(9, 12, 2, 1);
+    assertTrue(Protocol.valid(b, 1));
+    assertEquals(0, b[6]);
+    assertEquals(1, b[14]);
+    assertEquals(2, b[15]);
+    for (int i = 8; i <= 13; i++) assertEquals(0, b[i]);
+  }
 }

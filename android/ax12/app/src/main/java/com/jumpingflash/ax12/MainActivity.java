@@ -18,7 +18,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   private Button nativeToggle;
   private TextView nativeLiveStatus;
   private MissionView mission;
-  private TextView missionStatus, missionDetails, connectionSteps;
+  private TextView missionStatus, missionDetails, connectionSteps, missionTitle, driveHint;
   private LinearLayout robotCards;
   private Button disconnectButton;
   private final Map<String, Button> robotButtons = new HashMap<>();
@@ -199,6 +199,45 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     return v != null && v.fresh(SystemClock.elapsedRealtime());
   }
 
+  private boolean directionTest() {
+    return (capabilities & 64) != 0;
+  }
+
+  private boolean benchMode() {
+    return (capabilities & (32 | 64)) != 0;
+  }
+
+  private int readyMask() {
+    return directionTest() ? 1 : 3;
+  }
+
+  private boolean maintenancePending = false, maintenanceCancelPending = false;
+  private TextView connectionHelp;
+
+  private String selectionName() {
+    return radioState.sc < 0
+        ? "Waiting"
+        : new String[] {"RIGHT • ID 1", "LEFT • ID 2", "BOTH MOTORS"}[radioState.sc];
+  }
+
+  private void requestWatchdogCheck() {
+    if (!directionTest()
+        || !freshTelemetry()
+        || !liveInputFresh()
+        || radioState.sb != 0
+        || (robotFlags & 4) != 0) {
+      toast("Connect direction-test firmware; keep SB DISARMED and center gimbals first");
+      return;
+    }
+    if (Math.abs(forward()) > .02f || Math.abs(turn()) > .02f) {
+      toast("Center both gimbals for the zero-speed watchdog check");
+      return;
+    }
+    disarm("Watchdog check requested. Keep SB DISARMED and gimbals centered for about 6 seconds.");
+    maintenancePending = true;
+    sendFrame();
+  }
+
   private boolean singleLeg() {
     return (capabilities & 32) != 0;
   }
@@ -328,7 +367,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     art.setMargins(0, 0, dp(10), 0);
     layout.addView(mission, art);
     LinearLayout status = card();
-    status.addView(text("SINGLE LEG / FLIGHT DECK", 13));
+    status.addView(missionTitle = text("SINGLE LEG / FLIGHT DECK", 13));
     missionStatus = text("STANDBY", 26);
     status.addView(missionStatus);
     missionDetails = text("", 16);
@@ -342,9 +381,11 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     body.addView(layout);
     LinearLayout strip = card();
     strip.addView(
-        text(
-            "ELEVATOR  Move the leg     •     NEUTRAL  Hold position     •     SB  Disarm / arm",
-            16));
+        driveHint =
+            text(
+                "ELEVATOR  Move the leg     •     NEUTRAL  Hold position     •     SB  Disarm /"
+                    + " arm",
+                16));
     nativeToggle =
         button(
             nativeEnabled ? "Internal inputs ON • turn OFF" : "Internal inputs OFF • turn ON",
@@ -357,6 +398,23 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void operatorControls() {
+    if (directionTest()) {
+      body.addView(text("UNLOADED DIRECTION TEST", 26));
+      LinearLayout test = card();
+      test.addView(text("ID 1 RIGHT / ID 2 LEFT", 21));
+      test.addView(
+          text(
+              "SC low: RIGHT only • middle: LEFT only • high: BOTH\n"
+                  + "SB: DISARMED / motor enable\n"
+                  + "Elevator: choose spin direction; neutral commands zero speed.\n"
+                  + "1 A / up to 1 rad/s. Each run stops near 80° measured rotation or 2.5 seconds"
+                  + " after first motion command. Cycle SB off before another run.\n"
+                  + "No zero, homing, calibration or position hold. Stick B is unused. Keep both"
+                  + " outputs free of mechanisms and springs.",
+              16));
+      body.addView(test);
+      return;
+    }
     body.addView(text("YOUR CONTROLLER", 24));
     body.addView(text("One leg today. The full robot profile stays ready for later.", 15));
     LinearLayout c = card();
@@ -689,9 +747,11 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       return "Capture CH1/CH2 low, center, high; use distinct inputs";
     if (Math.abs(forward()) > .02f || Math.abs(turn()) > .02f)
       return "Center CH1/CH2 before arming";
-    if (!freshTelemetry() || (robotFlags & 3) != 3 || (robotFlags & 8) != 0 || lastFaults != 0)
-      return "Fresh ready, referenced, fault-free robot required";
-    if (!singleLeg() && (capabilities & (1 << mode)) == 0)
+    if (!freshTelemetry()
+        || (robotFlags & readyMask()) != readyMask()
+        || (robotFlags & 8) != 0
+        || lastFaults != 0) return "Fresh ready, referenced, fault-free robot required";
+    if (!benchMode() && (capabilities & (1 << mode)) == 0)
       return "Robot does not implement selected SC movement style";
     return null;
   }
@@ -877,7 +937,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       selectNativeInputs();
     } else detectInput();
     showTab(0);
-    log("AX12 app 0.5.0. Named RC profile; robot-side spinner/jump outputs not implemented.");
+    log("AX12 app 0.6.0. Named RC profile; robot-side spinner/jump outputs not implemented.");
     handler.post(pump);
   }
 
@@ -928,7 +988,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     nativeToggle = null;
     nativeLiveStatus = null;
     mission = null;
-    missionStatus = missionDetails = connectionSteps = null;
+    missionStatus =
+        missionDetails = connectionSteps = connectionHelp = missionTitle = driveHint = null;
     robotCards = null;
     disconnectButton = null;
     robotButtons.clear();
@@ -1252,7 +1313,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
 
   private void connections() {
     body.addView(text("LET’S LINK UP", 28));
-    body.addView(text("Power on the Stick. Its screen should say AX12 SINGLE LEG.", 16));
+    body.addView(text("Power on the Stick with the matching Jumping Flash firmware.", 16));
     LinearLayout c = card();
     connectionSteps = text("01 FIND     →     02 PAIR     →     03 CONNECTED", 18);
     c.addView(connectionSteps);
@@ -1283,12 +1344,13 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     LinearLayout help = card();
     help.addView(text("WHAT HAPPENS NEXT", 17));
     help.addView(
-        text(
-            "Tap your robot when it appears. If Android asks to pair, accept; we’ll finish"
-                + " connecting automatically. Connecting never arms the leg.\n"
-                + "Once linked: inputs ON → SB DISARMED → set retracted zero with Stick B → select"
-                + " LEG ARMED.",
-            15));
+        connectionHelp =
+            text(
+                "Tap your robot when it appears. If Android asks to pair, accept; we’ll finish"
+                    + " connecting automatically. Connecting never arms the leg.\n"
+                    + "Once linked: inputs ON → SB DISARMED → set retracted zero with Stick B →"
+                    + " select LEG ARMED.",
+                15));
     body.addView(help);
     body.addView(
         button(
@@ -1299,6 +1361,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   private void operatorStop() {
     if (nativeProbe != null) nativeProbe.stop();
     disarm("Operator STOP");
+    maintenanceCancelPending = directionTest();
     sendFrame();
   }
 
@@ -1490,6 +1553,18 @@ public final class MainActivity extends Activity implements InputManager.InputDe
 
   private void diagnostics() {
     body.addView(text("PIT TOOLS", 26));
+    if (directionTest()) {
+      LinearLayout checks = card();
+      checks.addView(text("TWO-MOTOR DIRECTION TEST", 20));
+      checks.addView(
+          text(
+              "After powering both motors: keep SB DISARMED and center gimbals. This check briefly"
+                  + " enables each motor at ZERO speed and 1 A to verify its CAN watchdog. Keep"
+                  + " outputs unloaded. No mechanical zero is set.",
+              15));
+      checks.addView(button("Check BOTH motor watchdogs • zero speed", this::requestWatchdogCheck));
+      body.addView(checks);
+    }
     body.addView(text("Setup and troubleshooting live here. Nothing here arms the robot.", 15));
     LinearLayout c = card();
     c.addView(text("INTERNAL RADIO INPUT", 18));
@@ -1886,7 +1961,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     else if (!enableHeld()) why = "Hold mapped enable first";
     else if (Math.abs(forward()) > .02f || Math.abs(turn()) > .02f) why = "Center gimbals first";
     else if (!freshTelemetry()) why = "No compatible fresh robot telemetry";
-    else if ((robotFlags & 3) != 3 || (robotFlags & 8) != 0 || lastFaults != 0)
+    else if ((robotFlags & readyMask()) != readyMask() || (robotFlags & 8) != 0 || lastFaults != 0)
       why = "Robot must report ready, referenced and fault-free";
     else if ((capabilities & (1 << mode)) == 0) why = "Robot does not support this mode";
     if (why != null) {
@@ -1924,6 +1999,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void disarm(String why) {
+    maintenancePending = false;
+    maintenanceCancelPending = false;
     boolean changed = armedRequest || launchPending;
     armedRequest = false;
     launchPending = false;
@@ -1953,11 +2030,12 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     rightDeg = Protocol.s16(b, 10) / 100.f;
     volts = Protocol.u16(b, 12) / 1000.f;
     lastFaults = b[14] & 255;
-    capabilities = b[15] & 63;
+    capabilities = b[15] & 127;
     if (armedRequest
         && ((b[7] & 255) != mode
-            || (!singleLeg() && (capabilities & (1 << mode)) == 0)
-            || (robotFlags & 3) != 3
+            || (!benchMode() && (capabilities & (1 << mode)) == 0)
+            || (robotFlags & readyMask()) != readyMask()
+            || (directionTest() && (robotFlags & 32) != 0)
             || (robotFlags & 8) != 0
             || lastFaults != 0)) disarm("Robot readiness/reference/fault changed");
     if (armedRequest && (robotFlags & 4) == 0 && SystemClock.elapsedRealtime() - armAt > 500)
@@ -1977,6 +2055,9 @@ public final class MainActivity extends Activity implements InputManager.InputDe
               ? "RC inputs unmapped or calibration incomplete"
               : "Invalid controller values");
     if (radioActive && (capabilities & 16) == 0) launchPending = false;
+    if (maintenancePending
+        && (!directionTest() || radioState.sb != 0 || !sourceFresh || !freshTelemetry()))
+      maintenancePending = false;
     if (demo || !ble.ready || ble.busy) return;
     boolean allowed =
         armedRequest
@@ -2001,7 +2082,12 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                 launchPending && allowed)
             : Protocol.command(
                 sequence, session, allowed, mode, forward(), turn(), launchPending && allowed);
+    if (maintenancePending) frame = Protocol.watchdogCheck(sequence, session, mode);
+    if (maintenanceCancelPending && directionTest())
+      frame = Protocol.directionStop(sequence, session, mode, radioState.sb);
     if (ble.send(frame)) {
+      maintenancePending = false;
+      maintenanceCancelPending = false;
       if (!sourceFresh) inputStopSent = true;
       sequence = (sequence + 1) & 65535;
       txCount++;
@@ -2167,6 +2253,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     if (mission != null) {
       boolean linked = freshTelemetry(), active = linked && (robotFlags & 4) != 0;
       mission.linked = linked;
+      mission.directionTest = directionTest();
       mission.referenced = linked && (robotFlags & 2) != 0;
       mission.armed = active;
       mission.fault = actualFault;
@@ -2217,6 +2304,59 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                                       ? "Ready. Center gimbals, then select LEG ARMED."
                                       : lastReason));
     }
+    if (missionTitle != null)
+      missionTitle.setText(
+          directionTest() ? "TWO MOTORS / DIRECTION TEST" : "SINGLE LEG / FLIGHT DECK");
+    if (driveHint != null)
+      driveHint.setText(
+          directionTest()
+              ? "ELEVATOR  Spin direction    •    NEUTRAL  Zero speed    •    SC  Right / left /"
+                  + " both    •    SB  Enable / disable"
+              : "ELEVATOR  Move the leg     •     NEUTRAL  Hold position     •     SB  Disarm /"
+                  + " arm");
+    if (directionTest() && mission != null) {
+      boolean live = freshTelemetry();
+      boolean checkFailed = live && (robotFlags & 64) != 0;
+      boolean pending = live && (robotFlags & 32) != 0, running = live && (robotFlags & 4) != 0;
+      missionStatus.setText(
+          !live
+              ? "ROBOT STATUS STALE"
+              : actualFault
+                  ? "MOTOR / CAN FAULT"
+                  : pending
+                      ? running ? "WATCHDOG CHECK" : "CHECK WATCHDOGS"
+                      : running
+                          ? armedRequest ? "MOTORS ENABLED" : "STOPPING"
+                          : "DIRECTION TEST READY");
+      missionDetails.setText(
+          "SELECTED  "
+              + selectionName()
+              + "\nINPUTS  "
+              + (liveInputFresh() ? "Live" : "Waiting")
+              + "\nZERO  Not used for this test"
+              + (live
+                  ? String.format(Locale.US, "\nTRAVEL  R %+.1f° / L %+.1f°", rightDeg, leftDeg)
+                  : "\nTRAVEL  —")
+              + "\nLOWER BATTERY  "
+              + (live && volts > 0 ? String.format(Locale.US, "%.1f V", volts) : "—"));
+      modeLabel.setText(
+          !live
+              ? "Motor state unconfirmed. Keep SB DISARMED and reconnect."
+              : actualFault
+                  ? "Stop requested for both motors; inspect CAN and both power supplies."
+                  : pending
+                      ? "Keep SB DISARMED. Pit Tools → Check BOTH motor watchdogs."
+                      : "SC selects right / left / both.\n"
+                          + "Elevator spins; neutral commands zero speed.\n"
+                          + "Run guard ~80° / 2.5s. Cycle SB off to rearm.\n"
+                          + "UNLOADED OUTPUTS ONLY — no leg mechanisms.");
+    }
+    if (directionTest() && connectionHelp != null)
+      connectionHelp.setText(
+          "DIRECTION TEST • ID1 right / ID2 left\n"
+              + "Keep both outputs unloaded. Pit Tools → Check BOTH motor watchdogs, with SB"
+              + " DISARMED and centered gimbals. Then SC selects motor(s) and elevator selects spin"
+              + " direction. No zero-setting step.");
     if (tab == 1 && rawView == null && radioInfo != null)
       radioInfo.setText(
           "Throttle "
@@ -2381,7 +2521,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
         if (out == null) throw new IOException("No output stream");
         String header =
-            "Jumping Flash AX12 0.5.0\nNamed profile "
+            "Jumping Flash AX12 0.6.0\nNamed profile "
                 + radioMappingText()
                 + "\nDevice "
                 + deviceName

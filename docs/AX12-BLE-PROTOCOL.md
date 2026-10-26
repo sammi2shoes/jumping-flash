@@ -59,3 +59,7 @@ Android may emit stationary joystick values only on change. Input age is diagnos
 ## Single-leg bench capability (APK v0.4.0 / Stick v0.1)
 
 Telemetry capability32 advertises manual single-leg control separately from gait capabilities. The app permits manual arming without an SC gait capability when this bit is present. Receiver uses forward as signed leg rate, ignores steering after neutral arming, and never implements spinner/jump/height actuation. SC is echoed for consistency but changing it while armed disarms. All actuator capability bits0..4 remain clear. See AX12-SINGLE-LEG.md for native-input and pairing policy.
+
+## Unloaded two-motor direction capability (APK v0.6.0)
+
+Capability bit6 (`64`) is a separate velocity-only commissioning mode with no reference requirement, gait, jump or ESC action. SC selects right ID1 / left ID2 / both, forward selects spin direction, and runs are measured-rotation/time bounded. Command byte15 opts into a zero-speed watchdog check (`1`, disarmed/zero axes only) or STOP/cancel (`2`, never arm); the legacy single-leg receiver does not opt in. Telemetry bits5/6 report watchdog check pending/unverified, bit1 is unused, and angles are relative test rotation. [Complete contract and install](AX12-DIRECTION-TEST.md).

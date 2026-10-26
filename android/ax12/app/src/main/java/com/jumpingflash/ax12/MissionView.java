@@ -11,7 +11,7 @@ public final class MissionView extends View {
       SKY = Color.rgb(66, 181, 244),
       YELLOW = Color.rgb(255, 212, 62),
       MINT = Color.rgb(87, 224, 169);
-  public boolean linked, referenced, armed, fault, stopping;
+  public boolean linked, referenced, armed, fault, stopping, directionTest;
   public float degrees;
 
   public MissionView(Context c) {
@@ -124,7 +124,11 @@ public final class MissionView extends View {
         INK);
     label(
         c,
-        referenced ? String.format(java.util.Locale.US, "%.1f° / 80°", degrees) : "ZERO NOT SET",
+        directionTest
+            ? "80° / 2.5s GUARD"
+            : referenced
+                ? String.format(java.util.Locale.US, "%.1f° / 80°", degrees)
+                : "ZERO NOT SET",
         427,
         338,
         18,

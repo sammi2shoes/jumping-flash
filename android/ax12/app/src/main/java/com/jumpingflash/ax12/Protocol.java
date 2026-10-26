@@ -80,6 +80,21 @@ public final class Protocol {
     return b;
   }
 
+  /** Explicit zero-speed commissioning action; only capability64 receivers support this. */
+  public static byte[] watchdogCheck(int sequence, int session, int style) {
+    byte[] b = radioCommand(sequence, session, false, 0, style, 0, 0, 0, 0, false, false);
+    b[15] = 1;
+    put(b, 18, crc(b, 18));
+    return b;
+  }
+
+  public static byte[] directionStop(int sequence, int session, int style, int sb) {
+    byte[] b = radioCommand(sequence, session, false, sb, style, 0, 0, 0, 0, false, false);
+    b[15] = 2;
+    put(b, 18, crc(b, 18));
+    return b;
+  }
+
   public static boolean valid(byte[] b, int type) {
     return b != null
         && b.length == 20

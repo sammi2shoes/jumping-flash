@@ -1,5 +1,11 @@
 # Current project status
 
+## Two-motor unloaded direction test
+
+Motor ID1 is RIGHT; newly updated RS05 ID2 is LEFT, with mirrored linkage. User currently has no mechanism/springs on the outputs and explicitly requested no reference-setting for this stage. [AX12DirectionTest v0.1 + APK v0.6.0](AX12-DIRECTION-TEST.md) use bounded velocity commands only, with SC selecting right/left/both. No zero, position target or position hold. Both motors are supervised, watchdog checks are requested in Pit Tools, and normal motion is capped near80° measured rotation /2.5sec per arm at1A/up to1rad/s. App-only firmware update preserves the existing partition/NVS layout. This new pair is compiled/simulated, not yet hardware accepted.
+
+The user reported the previous single-leg AX12 path passed live input, motor motion, neutral hold, SB disarm, Bluetooth-loss stop and no restart after reconnect; ankle spring was disconnected. Updated printed feet prevented spring testing.
+
 ## AX12 single-leg integration — new test build
 
 APK v0.5.0 adds a Jumping Flash–inspired flight deck, simplified single-leg Controls, Pit Tools for advanced/legacy setup and guided service-filtered Bluetooth connection. Android pairing automatically continues the original connection request; Disconnect cancels it. Last robot is remembered for one-tap manual reconnect. Firmware/limits are unchanged. [Previews and flow](AX12-UI-v0.5.md). Build, lint and56 Android tests pass; physical BLE acceptance is pending.

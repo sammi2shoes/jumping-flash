@@ -43,5 +43,13 @@ int main(){
  packet(b,65535,true,1);assert(!r.accept(b,20,350));
  // unsigned millis rollover
  r.at=0xfffffff0;assert(r.fresh(20));r.expire(90);assert(!r.enabled);
+ // Maintenance is opt-in and never shares an armed or nonzero control packet.
+ jf::Receiver maintenance;maintenance.link=true;maintenance.allowMaintenance=true;
+ packet(b,1,false,0);b[15]=1;seal(b);assert(maintenance.accept(b,20,10)&&maintenance.maintenanceRequested&&!maintenance.enabled);
+ maintenance.maintenanceRequested=false;assert(!maintenance.accept(b,20,20));assert(!maintenance.maintenanceRequested);
+ packet(b,2,true,1);b[15]=1;seal(b);assert(!maintenance.accept(b,20,30)&&!maintenance.enabled);
+ packet(b,2,false,0,1);b[15]=1;seal(b);assert(!maintenance.accept(b,20,30));
+ packet(b,2,false,1);b[15]=2;seal(b);assert(maintenance.accept(b,20,40)&&maintenance.maintenanceStopRequested&&!maintenance.enabled);
+ maintenance.disconnect();assert(!maintenance.maintenanceRequested&&!maintenance.maintenanceStopRequested);
  puts("AX12 receiver tests passed: framing, neutral arming, deadlines, replay, session, disconnect, unsupported outputs, wrap.");
 }

@@ -1,8 +1,10 @@
 # Jumping Flash AX12 Android controller
 
+[Two-motor unloaded direction test — no reference step](../../docs/AX12-DIRECTION-TEST.md). APK v0.6.0 supports this commissioning mode and the previous single-leg firmware; only the direction capability bypasses the mechanical reference requirement.
+
 [New interface and guided Bluetooth connection](../../docs/AX12-UI-v0.5.md).
 
-Current: **v0.5.0**, default-on cable-free AX12 internal inputs (explicit remembered OFF switch, automatic foreground resume) plus matching single-leg Stick firmware. See [AX12 single-leg setup](../../docs/AX12-SINGLE-LEG.md). Older gamepad/probe instructions below remain historical context. The live internal reader and BLE outputs are now integrated; physical acceptance of this pair is pending.
+Current: **v0.6.0**, default-on cable-free AX12 internal inputs (explicit remembered OFF switch, automatic foreground resume) plus matching single-leg Stick firmware. See [AX12 single-leg setup](../../docs/AX12-SINGLE-LEG.md). Older gamepad/probe instructions below remain historical context. The live internal reader and BLE outputs are now integrated; physical acceptance of this pair is pending.
 
 Current app build: `0.3.0`, Android9/API28 or later, ARM64, landscape. APK: [download](https://github.com/sammi2shoes/jumping-flash/raw/refs/heads/main/releases/JumpingFlash-AX12-v0.3.0.apk).
 
@@ -30,7 +32,7 @@ cd android/ax12
 ./gradlew assembleDebug lintDebug testDebugUnitTest
 ```
 
-Windows: `gradlew.bat assembleDebug lintDebug testDebugUnitTest`. Android Studio can open this directory directly. The wrapper pins Gradle8.10.2 plus distribution checksum; AGP8.8.2, Java17 bytecode, compile/target SDK35 and versionCode7 are pinned. Unit tests use JUnit4.13.2 and Robolectric4.14.1 with Android9/API28, including native-graphics screen renders. Android9–15 installation and AX12-specific inputs/BLE remain hardware checks, not claims from host tests.
+Windows: `gradlew.bat assembleDebug lintDebug testDebugUnitTest`. Android Studio can open this directory directly. The wrapper pins Gradle8.10.2 plus distribution checksum; AGP8.8.2, Java17 bytecode, compile/target SDK35 and versionCode8 are pinned. Unit tests use JUnit4.13.2 and Robolectric4.14.1 with Android9/API28, including native-graphics screen renders. Android9–15 installation and AX12-specific inputs/BLE remain hardware checks, not claims from host tests.
 
 The deliberately public **development-only** signing keystore/password (`android`) keeps debug installs update-compatible across build machines. It is not a production signing identity or a robot authentication credential. Keep the application ID and signing config for updates and increment versionCode/versionName. Future distribution outside this development project requires separate signing management.
 
