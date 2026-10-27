@@ -337,6 +337,32 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     sendFrame();
   }
 
+  private String motorDiagnostic() {
+    if (lastFaults == 0) return "none";
+    if (!dualPosition()) return "flags 0x" + Integer.toHexString(lastFaults);
+    String[] reasons = {
+      "unknown",
+      "CAN controller / TX",
+      "read replies missing",
+      "parameter rejected",
+      "write verification mismatch",
+      "nonfinite encoder",
+      "outside fixed travel",
+      "encoder continuity lost",
+      "motor settings changed",
+      "unexpected motor mode",
+      "motor fault",
+      "motor restart detected",
+      "following error",
+      "STOP unconfirmed"
+    };
+    int code = lastFaults & 15;
+    return "ID"
+        + (lastFaults >>> 4)
+        + " "
+        + (code < reasons.length ? reasons[code] : "code " + code);
+  }
+
   private boolean singleLeg() {
     return (capabilities & 32) != 0;
   }
@@ -403,6 +429,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   private final Set<Integer> keys = new HashSet<>();
   private final LinkedHashMap<String, BluetoothDevice> devices = new LinkedHashMap<>();
   private final ArrayDeque<String> logs = new ArrayDeque<>();
+  private final ArrayDeque<String> motorFaultHistory = new ArrayDeque<>();
   private android.content.SharedPreferences prefs;
   private LinearLayout body;
   private TextView headline, summary, linkLabel, rawView, calLabel, modeLabel;
@@ -505,7 +532,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
           text(
               dualPosition()
                   ? "Both motors move together; SC changes require rearming.\n"
-                      + "Run BOTH watchdog checks, then place BOTH outputs at the retracted"
+                      + "Watchdogs configure automatically; place BOTH outputs at the retracted"
                       + " pose.\n"
                       + "Release then hold Stick B for 2 seconds to capture independent zeros.\n"
                       + "SB arms/disarms both. Elevator extends/retracts; neutral HOLDS.\n"
@@ -1046,7 +1073,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       selectNativeInputs();
     } else detectInput();
     showTab(0);
-    log("AX12 app 0.7.0. Named RC profile; robot-side spinner/jump outputs not implemented.");
+    log("AX12 app 0.7.1. Named RC profile; robot-side spinner/jump outputs not implemented.");
     handler.post(pump);
   }
 
@@ -1666,7 +1693,13 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   private void diagnostics() {
     body.addView(text("PIT TOOLS", 26));
     body.addView(button("Live input monitor • gimbals, dials & switches", this::inputMonitorPage));
-    if (directionTest()) {
+    if (dualPosition())
+      body.addView(
+          text(
+              "Motor watchdogs configure automatically in the background. No routine watchdog"
+                  + " action required.",
+              16));
+    if (directionTest() && !dualPosition()) {
       LinearLayout checks = card();
       checks.addView(
           text(dualPosition() ? "TWO-LEG POSITION BENCH" : "TWO-MOTOR DIRECTION TEST", 20));
@@ -2145,8 +2178,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     volts = Protocol.u16(b, 12) / 1000.f;
     lastFaults = b[14] & 255;
     capabilities = b[15] & 255;
-    if (directionTest() && (robotFlags & (1 | 2 | 8 | 32 | 64)) != commissioningFlags) {
-      commissioningFlags = robotFlags & (1 | 2 | 8 | 32 | 64);
+    int commissioningKey =
+        (capabilities << 16) | (lastFaults << 8) | (robotFlags & (1 | 2 | 8 | 32 | 64));
+    if (directionTest() && commissioningKey != commissioningFlags) {
+      commissioningFlags = commissioningKey;
       commissioningEvidence =
           "t="
               + telemetryAt
@@ -2157,10 +2192,18 @@ public final class MainActivity extends Activity implements InputManager.InputDe
               + " watchdog="
               + ((robotFlags & 32) != 0
                   ? "PENDING"
-                  : (robotFlags & 1) != 0 ? "BOTH QUALIFIED" : "UNCONFIRMED")
+                  : (robotFlags & 1) != 0
+                      ? dualPosition() ? "AUTO CONFIG VERIFIED" : "BOTH QUALIFIED"
+                      : "UNCONFIRMED")
               + " reference="
-              + ((robotFlags & 2) != 0 ? "VALID" : "NOT VALID / NOT USED");
+              + ((robotFlags & 2) != 0 ? "VALID" : "NOT VALID / NOT USED")
+              + " diagnostic="
+              + motorDiagnostic();
       log(commissioningEvidence);
+      if (dualPosition() && lastFaults != 0) {
+        motorFaultHistory.addLast(commissioningEvidence);
+        while (motorFaultHistory.size() > 16) motorFaultHistory.removeFirst();
+      }
     }
     if (armedRequest
         && ((b[7] & 255) != mode
@@ -2463,7 +2506,9 @@ public final class MainActivity extends Activity implements InputManager.InputDe
               : actualFault
                   ? "MOTOR / CAN FAULT"
                   : pending
-                      ? running ? "WATCHDOG CHECK" : "CHECK WATCHDOGS"
+                      ? dualPosition()
+                          ? "CONNECTING MOTORS"
+                          : running ? "WATCHDOG CHECK" : "CHECK WATCHDOGS"
                       : running
                           ? armedRequest ? "MOTORS ENABLED" : "STOPPING"
                           : dualPosition()
@@ -2480,8 +2525,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                   : checkFailed
                       ? "NOT VERIFIED / RETRY"
                       : pending
-                          ? "CHECK REQUIRED"
-                          : (robotFlags & 1) != 0 ? "BOTH PASS" : "UNCONFIRMED")
+                          ? dualPosition() ? "AUTOMATIC SETUP" : "CHECK REQUIRED"
+                          : (robotFlags & 1) != 0
+                              ? dualPosition() ? "AUTO CONFIG VERIFIED" : "BOTH PASS"
+                              : "UNCONFIRMED")
               + "\nINPUTS  "
               + (liveInputFresh() ? "Live" : "Waiting")
               + (dualPosition()
@@ -2490,6 +2537,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
               + (live
                   ? String.format(Locale.US, "\nTRAVEL  R %+.1f° / L %+.1f°", rightDeg, leftDeg)
                   : "\nTRAVEL  —")
+              + (dualPosition() && lastFaults != 0 ? "\nFAULT  " + motorDiagnostic() : "")
               + "\nLOWER BATTERY  "
               + (live && volts > 0 ? String.format(Locale.US, "%.1f V", volts) : "—"));
       modeLabel.setText(
@@ -2498,7 +2546,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
               : actualFault
                   ? "Stop requested for both motors; inspect CAN and both power supplies."
                   : pending
-                      ? "Keep SB DISARMED. Pit Tools → Check BOTH motor watchdogs."
+                      ? dualPosition()
+                          ? "Keep SB DISARMED and center controls. Motor setup/recovery is"
+                              + " automatic."
+                          : "Keep SB DISARMED. Pit Tools → Check BOTH motor watchdogs."
                       : dualPosition()
                           ? ((robotFlags & 2) != 0
                               ? "BOTH fixed 0–80°. Elevator moves; neutral holds.\n"
@@ -2514,7 +2565,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       connectionHelp.setText(
           dualPosition()
               ? "DUAL POSITION • ID1 right / ID2 left\n"
-                  + "SB DISARMED; check BOTH watchdogs. Place BOTH at retracted pose; release"
+                  + "Watchdogs automatic. SB DISARMED; place BOTH at retracted pose; release"
                   + " then hold Stick B 2s. Both zeros stay fixed until restart. Elevator moves"
                   + " both; neutral holds. Bare outputs first."
               : "DIRECTION TEST • ID1 right / ID2 left\n"
@@ -2693,7 +2744,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
         if (out == null) throw new IOException("No output stream");
         String header =
-            "Jumping Flash AX12 0.7.0\nNamed profile "
+            "Jumping Flash AX12 0.7.1\nNamed profile "
                 + radioMappingText()
                 + "\nDevice "
                 + deviceName
@@ -2721,6 +2772,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                 + launchKey
                 + "\n";
         out.write(header.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        for (String event : motorFaultHistory)
+          out.write(
+              ("MOTOR FAULT HISTORY (historical): " + event + "\n")
+                  .getBytes(java.nio.charset.StandardCharsets.UTF_8));
         if (nativeProbe != null)
           out.write(nativeProbe.dump().getBytes(java.nio.charset.StandardCharsets.UTF_8));
         if (nativeRadio != null)

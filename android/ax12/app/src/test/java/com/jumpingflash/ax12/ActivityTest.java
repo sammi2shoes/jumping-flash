@@ -773,6 +773,63 @@ public class ActivityTest {
   }
 
   @Test
+  public void dualRecoveryShowsAutomaticConfigAndExportsSpecificFaultChanges() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity a = c.get();
+      ((BleLink) get(a, "ble")).ready = true;
+      org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(1));
+      byte[] frame = new byte[20];
+      frame[0] = 'J';
+      frame[1] = 'F';
+      frame[2] = 2;
+      frame[3] = (byte) 0x81;
+      frame[15] = (byte) 128;
+      frame[6] = 1;
+      Protocol.put(frame, 16, (Integer) get(a, "session"));
+      Method accept = MainActivity.class.getDeclaredMethod("acceptTelemetry", byte[].class);
+      accept.setAccessible(true);
+      Method render = MainActivity.class.getDeclaredMethod("render");
+      render.setAccessible(true);
+      for (int seq = 1; seq <= 3; seq++) {
+        Protocol.put(frame, 4, seq);
+        if (seq > 1) {
+          frame[6] = 0x28;
+          frame[14] = (byte) (seq == 2 ? 0x26 : 0x27);
+        }
+        Protocol.put(frame, 18, Protocol.crc(frame, 18));
+        accept.invoke(a, (Object) frame);
+        render.invoke(a);
+        if (seq == 1)
+          assertTrue(
+              ((android.widget.TextView) get(a, "missionDetails"))
+                  .getText()
+                  .toString()
+                  .contains("AUTO CONFIG VERIFIED"));
+        else {
+          String expected = seq == 2 ? "ID2 outside fixed travel" : "ID2 encoder continuity lost";
+          assertTrue(((String) get(a, "commissioningEvidence")).contains(expected));
+          assertTrue(
+              ((android.widget.TextView) get(a, "missionDetails"))
+                  .getText()
+                  .toString()
+                  .contains(expected));
+          assertFalse((Boolean) get(a, "armedRequest"));
+        }
+      }
+      frame[6] = 1;
+      frame[14] = 0;
+      Protocol.put(frame, 4, 4);
+      Protocol.put(frame, 18, Protocol.crc(frame, 18));
+      accept.invoke(a, (Object) frame);
+      java.util.ArrayDeque<?> history = (java.util.ArrayDeque<?>) get(a, "motorFaultHistory");
+      assertEquals(2, history.size());
+      assertTrue(history.toString().contains("ID2 outside fixed travel"));
+      assertTrue(history.toString().contains("ID2 encoder continuity lost"));
+    }
+  }
+
+  @Test
   public void inputMonitorShowsLiveSourcesAndClearsThemWhenStale() throws Exception {
     try (ActivityController<MainActivity> c =
         Robolectric.buildActivity(MainActivity.class).setup()) {

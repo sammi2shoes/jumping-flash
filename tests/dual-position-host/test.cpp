@@ -11,6 +11,7 @@ SerialMock Serial;M5Mock M5;
 struct Motor{int mode=0;float pos=2.9f;std::map<uint16_t,uint32_t> reg;uint32_t last=0;bool absent=false,honor=true,ignoreStop=false,jammed=false;int enables=0;};
 int simulatedBusState=TWAI_STATE_RUNNING;
 float targetReadbackOffset=0;bool rejectLeftCurrentOnArm=false;
+int dropReads=0,dropMotor=0,dropIndex=0x7019;
 Motor sim[2];std::deque<twai_message_t> received;
 struct Sent{uint32_t at;int motor,type,index;uint32_t bits;};std::vector<Sent> sent;
 #include "../../firmware/AX12DualPosition/AX12DualPosition.ino"
@@ -30,7 +31,7 @@ void feedback(int i){twai_message_t f={};f.extd=1;f.data_length_code=8;f.identif
 int twai_get_status_info(twai_status_info_t*s){*s={};s->state=simulatedBusState;return 0;}
 int twai_receive(twai_message_t*f,int){if(received.empty())return -1;*f=received.front();received.pop_front();return 0;}
 int twai_transmit(const twai_message_t*f,int){
- assert(f->extd&&f->ss&&f->data_length_code==8&&((f->identifier>>8)&255)==126);
+ assert(f->extd&&f->ss==(((f->identifier>>24)&31)==17?0u:1u)&&f->data_length_code==8&&((f->identifier>>8)&255)==126);
  int type=(f->identifier>>24)&31,i=(f->identifier&255)-1,index=jf::u16(f->data);uint32_t bits;memcpy(&bits,f->data+4,4);
  assert(i==0||i==1);assert(type==3||type==4||type==17||type==18||type==24);
  if(type==18 && index==0x7016 && referenceValid){float relative=legs[i].sign*(floatOf(bits)-legs[i].origin);assert(relative>=-.0005f&&relative<=TRAVEL+.0005f);}
@@ -40,6 +41,7 @@ int twai_transmit(const twai_message_t*f,int){
  if(type==3){assert((m.reg[0x7005]==2||m.reg[0x7005]==5)&&m.reg[0x7018]==bitsOf(1.f));assert(stage==DIR_ARMING||stage==DIR_WATCHDOG_TEST);m.mode=2;++m.enables;}
  if(type==18){assert(index==0x7005||index==0x7018||index==0x7028||index==0x700A||index==0x7016||index==0x7017);if(index==0x700A)assert(fabsf(floatOf(bits))<=1.f);if(index==0x7018)assert(bits==bitsOf(1.f));m.reg[index]=bits;if(rejectLeftCurrentOnArm&&stage==DIR_ARMING&&i==1&&index==0x7018)m.reg[index]=bitsOf(.5f);}
  if(m.absent)return ESP_OK;
+ if(type==17&&i==dropMotor&&index==dropIndex&&dropReads>0){--dropReads;return ESP_OK;}
  if(type==17){twai_message_t r={};r.extd=1;r.data_length_code=8;r.identifier=0x1100007e|(uint32_t(i+1)<<8);r.data[0]=index;r.data[1]=index>>8;uint32_t b=index==0x7019?bitsOf(m.pos):index==0x701C?bitsOf(i?23.f:24.f):m.reg[index];if(index==0x7016)b=bitsOf(floatOf(b)+targetReadbackOffset);memcpy(r.data+4,&b,4);received.push_back(r);}
  else feedback(i);
  return ESP_OK;
@@ -52,16 +54,18 @@ void reset(){
  watchdogFailed=false;driverReady=configured=cancelled=stopRequested=uncertain=testing=quiet=foreignTraffic=readDone=readOK=pending=testRequested=false;
  pendingMotor=-1;pendingIndex=0;readBits=retryAt=pollAt=signatureAt=displayAt=0;selection=0;signatureLeg=0;
  referenceCaptured=referenceValid=referenceReleased=false;referenceHoldAt=0;
+ communicationFault=referenceRecoverable=referenceFault=false;diagnostic=0;readRetries=0;dropReads=0;dropMotor=0;dropIndex=0x7019;
  setup();assert(sim[0].enables==0&&sim[1].enables==0);
  for(auto&f:sent)assert(f.type==4);
- tick(1700);assert(configured&&stage==DIR_DISABLED&&!allQualified());
+ tick(1700);assert(configured&&stage==DIR_DISABLED&&allQualified());
 }
-void qualify(){off();ax12.rx.maintenanceRequested=true;tick(10);assert(allQualified()&&stage==DIR_DISABLED);assert(sim[0].mode==0&&sim[1].mode==0);assert(sim[0].reg[0x7028]==20000&&sim[1].reg[0x7028]==20000);}
+void qualify(){off();tick(10);assert(allQualified()&&stage==DIR_DISABLED);assert(sim[0].mode==0&&sim[1].mode==0);assert(sim[0].reg[0x7028]==20000&&sim[1].reg[0x7028]==20000);}
+
 
 void reference(){off();M5.BtnB.down=false;tick(100);M5.BtnB.down=true;tick(2150);M5.BtnB.down=false;tick(100);assert(referenceCaptured&&referenceValid);}
 void enable(){off();tick(100);ax12.rx.sb=1;ax12.rx.enabled=true;tick(100);assert(stage==DIR_ACTIVE);assert(sim[0].mode==2&&sim[1].mode==2);}
 int main(){
- reset();M5.BtnB.down=true;tick(2200);assert(!referenceCaptured);M5.BtnB.down=false;
+ reset();assert(sim[0].enables==0&&sim[1].enables==0); // automatic config NEVER energizes either motor
  qualify();ax12.rx.sb=1;ax12.rx.enabled=true;tick(100);assert(stage==DIR_DISABLED&&sim[0].mode==0&&sim[1].mode==0);
  // Fixed per-motor origins, deliberately different encoder positions.
  off();sim[0].pos=4.f;sim[1].pos=-2.f;tick(100);reference();assert(legs[0].origin==4.f&&legs[1].origin==-2.f);
@@ -75,12 +79,32 @@ int main(){
  ax12.reports=false;tick(200);assert(sim[0].mode==0&&sim[1].mode==0&&referenceValid);ax12.reports=true;tick(200);assert(stage==DIR_DISABLED);enable();
  // No out-of-window rearm; no reference recapture after uncertainty.
  off();tick(100);sim[1].pos+=3.f;tick(100);assert(!referenceValid&&referenceCaptured);M5.BtnB.down=true;tick(2400);assert(!referenceValid);
- reset();qualify();reference();enable();sim[1].absent=true;sim[1].ignoreStop=true;tick(300);assert(stage==DIR_OFFLINE&&!referenceValid&&sim[0].mode==0);auto n=sent.size();tick(900);assert(sent.size()==n);
+ reset();qualify();reference();enable();sim[1].absent=true;sim[1].ignoreStop=true;tick(300);assert(stage==DIR_OFFLINE&&!referenceValid&&referenceRecoverable&&!referenceFault&&sim[0].mode==0);auto n=sent.size();tick(900);assert(sent.size()==n);
+ sim[1].absent=sim[1].ignoreStop=false;off();int enables=sim[0].enables+sim[1].enables;tick(1600);assert(configured&&referenceValid&&allQualified()&&!referenceRecoverable);assert(sim[0].enables+sim[1].enables==enables);assert(stage==DIR_DISABLED);enable();
  reset();qualify();reference();enable();ax12.rx.maintenanceStopRequested=true;tick(100);assert(stage==DIR_DISABLED&&referenceValid&&sim[0].mode==0&&sim[1].mode==0);
  reset();sim[1].honor=false;off();ax12.rx.maintenanceRequested=true;tick(10);assert(!allQualified()&&!referenceValid&&sim[0].mode==0&&sim[1].mode==0);
  reset();targetReadbackOffset=.0001f;assert(writeChecked(0,0x7016,bitsOf(sim[0].pos)));targetReadbackOffset=.002f;assert(!writeChecked(0,0x7016,bitsOf(sim[0].pos))&&uncertain);
  reset();qualify();reference();int before=sim[0].enables;rejectLeftCurrentOnArm=true;off();tick(100);ax12.rx.sb=1;ax12.rx.enabled=true;tick(200);assert(sim[0].enables==before+1);assert(sim[0].mode==0&&sim[1].mode==0&&!referenceValid);
  reset();qualify();reference();twai_message_t boot={};boot.extd=1;boot.data_length_code=8;boot.identifier=0x000002FE;received.push_back(boot);tick(100);assert(!referenceValid&&referenceCaptured);
  reset();qualify();reference();enable();sim[1].jammed=true;ax12.rx.forward=1000;tick(500);assert(stage==DIR_DISABLED&&sim[0].mode==0&&sim[1].mode==0);assert(Serial.output.find("tracking error exceeds")!=std::string::npos);
- puts("PASS: dual fixed independent references, mirrored position targets, both watchdog gate, no boot enable, no encoder reset, endpoint clamps, neutral hold, no re-zero on arm/B, BLE loss preserves trusted origins, CAN uncertainty invalidates both, both-stop and no restart. Simulated hardware only.");
+ // A single lost reply is recovered while armed, without reconfiguration, enable, STOP or zero changes.
+ reset();qualify();reference();enable();float savedR=legs[0].origin,savedL=legs[1].origin;auto boundary=sent.size();dropReads=1;ax12.rx.forward=500;tick(150);
+ assert(stage==DIR_ACTIVE&&referenceValid&&allQualified()&&readRetries==1&&legs[0].origin==savedR&&legs[1].origin==savedL);
+ for(size_t k=boundary;k<sent.size();k++){assert(sent[k].type!=3&&sent[k].type!=4);if(sent[k].type==18)assert(sent[k].index==0x7016);}
+ // Lost target-readback replies retry reads only; no stale target replay.
+ boundary=sent.size();dropReads=2;dropIndex=0x7016;tick(150);assert(stage==DIR_ACTIVE&&readRetries==3);
+ // Auxiliary voltage loss cannot disable motors that still supply valid control feedback.
+ reset();qualify();reference();enable();dropReads=100;dropIndex=0x701C;tick(3500);assert(stage==DIR_ACTIVE&&referenceValid&&allQualified()&&!uncertain&&std::isnan(ax12.voltage));
+ // Changed settings during an outage prohibit reference recovery, even after config returns.
+ reset();qualify();reference();enable();sim[1].absent=true;tick(250);assert(referenceRecoverable);sim[1].absent=false;sim[1].reg[0x7005]=0;off();tick(1700);assert(!referenceValid&&!referenceRecoverable&&referenceFault);
+ // Actual bus-off recovers the driver and validates origins, without any automatic enable.
+ reset();qualify();reference();enable();simulatedBusState=TWAI_STATE_BUS_OFF;tick(100);assert(referenceRecoverable&&!referenceValid);off();enables=sim[0].enables+sim[1].enables;tick(3000);assert(configured&&referenceValid&&stage==DIR_DISABLED&&allQualified());assert(sim[0].enables+sim[1].enables==enables);
+ // Nonfinite and out-of-range readings get specific hard-fault codes, not a generic CAN label.
+ reset();qualify();reference();enable();sim[1].pos=NAN;tick(100);assert(!referenceValid&&referenceFault&&(diagnostic&15)==POSITION_NONFINITE);
+ // Three-minute simulated drive with isolated dropped replies: no stop/re-enable/re-zero/config cycles.
+ reset();qualify();reference();enable();boundary=sent.size();enables=sim[0].enables+sim[1].enables;
+ for(int sec=0;sec<180;sec++){ax12.rx.forward=sec%2? -500:500;if(sec%10==0)dropReads=1;tick(1000);assert(stage==DIR_ACTIVE&&referenceValid&&allQualified());}
+ assert(readRetries==18&&sim[0].enables+sim[1].enables==enables);
+ for(size_t k=boundary;k<sent.size();k++){assert(sent[k].type!=3&&sent[k].type!=4);if(sent[k].type==18)assert(sent[k].index==0x7016);}
+ puts("PASS: automatic watchdog config without enable, bounded READ-only retries, active continuity through dropped replies, verified reference restoration after communication outage without re-enable, hard reset/settings/encoder faults remain blocked, mirrored limits/hold, explicit A/B failure gate and no auto-rearm. Simulated hardware only.");
 }

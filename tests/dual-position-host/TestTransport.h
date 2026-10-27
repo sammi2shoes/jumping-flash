@@ -4,7 +4,7 @@
 struct FakeAx12{
  jf::Receiver rx;bool reports=true;uint32_t cancelAt=0;
  bool ready=false,armed=false,fault=false,needed=true;
- float left=0,right=0;
+ float left=0,right=0,voltage=NAN;
  void begin(){rx.link=true;rx.have=true;rx.sb=0;rx.at=millis();}
  void enableMaintenance(){rx.allowMaintenance=true;}
  void update(){if(cancelAt && millis()>=cancelAt){rx.maintenanceStopRequested=true;cancelAt=0;}if(reports&&rx.link){rx.have=true;rx.at=millis();}rx.expire(millis());}
@@ -13,8 +13,8 @@ struct FakeAx12{
  bool takeMaintenanceStop(){bool r=rx.maintenanceStopRequested;rx.maintenanceStopRequested=false;return r;}
  bool takeMaintenanceRequest(){bool r=rx.maintenanceRequested;rx.maintenanceRequested=false;return r;}
  void requireDisarm(){rx.requireDisarm();}
- void telemetryDirection(bool r,bool a,bool f,float l,float rightPos,float,bool need,bool failed){
-  ready=r;armed=a;fault=f;needed=need;left=l;right=rightPos;
+ void telemetryDirection(bool r,bool a,bool f,float l,float rightPos,float v,bool need,bool failed){
+  ready=r;armed=a;fault=f;needed=need;left=l;right=rightPos;voltage=v;
  }
- void telemetryDual(bool r,bool ref,bool a,bool f,float l,float rp,float v,bool need,bool failed){telemetryDirection(r,a,f,l,rp,v,need,failed);}
+ void telemetryDual(bool r,bool ref,bool a,bool f,float l,float rp,float v,bool need,bool failed,uint8_t diagnostic=0){telemetryDirection(r,a,f,l,rp,v,need,failed);}
 } ax12;

@@ -1,5 +1,7 @@
 # Two-leg fixed position bench — v0.1 / APK v0.7.0
 
+**Historical v0.1 procedure.** [v0.2 / APK v0.7.1](AX12-CAN-RECOVERY.md) replaces the manual watchdog gate with automatic setup and bounded CAN recovery.
+
 This replaces the unloaded direction test with **BOTH-motor position control**. Right RS05 ID1 extends toward decreasing encoder angle; left RS05 ID2 extends toward increasing angle. Both use CAN2.0 firmware0.5.0.14. No gait, jump, steering mix or ESC output is implemented. Begin with the currently bare outputs; attached mechanisms/springs are not accepted by this release.
 
 ## Downloads and flashing

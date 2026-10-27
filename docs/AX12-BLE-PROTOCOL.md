@@ -68,3 +68,6 @@ Capability bit6 (`64`) is a separate velocity-only commissioning mode with no re
 ## Capability128: dual fixed-position bench
 
 AX12DualPosition v0.1 uses capability128 exclusively; decode the full unsigned byte15. Both reference-valid bit1 and ready bit0 are required before arming. Left/right centidegrees at8/10 are measured travel from independent manual RAM origins, only meaningful while referenced. Watchdog-pending bit5 and failed bit6 retain the dual direction commissioning semantics, including explicit maintenance byte15 commands. SC is reserved but changing style still disarms. Both motors move together from elevator; neutral holds each target. No gait/jump/ESC semantics follow from this capability. See [procedure and limits](AX12-DUAL-POSITION.md).
+
+
+Dual-position v0.2 retains capability128; readiness now gates checked watchdog configuration, not a newly run behavioral A/B trial. Setup is automatic while disabled. Byte14 packs motor ID/reason during uncertainty;0means no current fault report. Bit5 indicates configuration pending and bit6 explicit behavioral diagnostic failure. The APK must not label configuration verification as a behavioral PASS. [Recovery and diagnostic details](AX12-CAN-RECOVERY.md).
