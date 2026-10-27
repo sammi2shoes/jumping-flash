@@ -123,15 +123,49 @@ public class NativeRadioInputTest {
     reader.start(true);
     long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
     try {
-      while (!reader.status().contains("Waiting for a valid") && System.nanoTime() < end)
+      while (!reader.status().contains("Waiting for valid") && System.nanoTime() < end)
         Thread.yield();
       assertTrue(reader.running());
       assertNull(reader.sample());
-      assertTrue(reader.status().contains("Waiting for a valid"));
+      assertTrue(reader.status().contains("Waiting for valid"));
       queue.add(actualFrame());
       while (reader.sample() == null && System.nanoTime() < end) Thread.yield();
       assertNotNull(reader.sample());
-      assertTrue(reader.status().contains("Internal inputs running"));
+      assertTrue(reader.status().startsWith("LIVE"));
+    } finally {
+      reader.stop();
+    }
+  }
+
+  @Test
+  public void openPortAloneIsNotLiveAndOldReportsExpire() throws Exception {
+    NativeUartProbeTest.FakePort io = new NativeUartProbeTest.FakePort();
+    NativeRadioInput reader = new NativeRadioInput(io);
+    reader.start(true);
+    long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    try {
+      assertTrue(io.entered.await(2, TimeUnit.SECONDS));
+      while (!reader.status().contains("NOT LIVE") && System.nanoTime() < end) Thread.yield();
+      assertNull(reader.sample());
+      assertTrue(reader.status().contains("NOT LIVE"));
+      assertFalse(reader.status().startsWith("LIVE"));
+    } finally {
+      reader.stop();
+    }
+    end = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (reader.running() && System.nanoTime() < end) Thread.yield();
+    io = new NativeUartProbeTest.FakePort();
+    io.packet = actualFrame();
+    reader = new NativeRadioInput(io);
+    reader.start(true);
+    end = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    try {
+      while (reader.sample() == null && System.nanoTime() < end) Thread.yield();
+      assertNotNull(reader.sample());
+      assertTrue(reader.status().startsWith("LIVE"));
+      org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(120));
+      assertTrue(reader.status().startsWith("STALE"));
+      assertFalse(reader.sample().fresh(android.os.SystemClock.elapsedRealtime()));
     } finally {
       reader.stop();
     }

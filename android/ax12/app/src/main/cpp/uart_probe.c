@@ -1,4 +1,4 @@
-// Diagnostic-only serial reader. No UART writes, termios changes, shell, root or RF commands.
+// Read-only UART byte I/O. Passive capture preserves settings; live input sets/validates raw921600/8N1. No serial writes, shell, root, modem-line or RF commands.
 #ifndef JF_UART_CORE_TEST
 #include <jni.h>
 #endif
@@ -20,6 +20,37 @@ static int probe_open(const char *name) {
     if(!S_ISCHR(info.st_mode)){close(fd);return -ENOTTY;}
     if(ioctl(fd,TIOCEXCL)<0){int error=errno;close(fd);return -error;}
     return fd;
+}
+// Live configuration is deliberately separate from the passive probe path.
+static int live_matches(const struct termios *t) {
+    tcflag_t input_forbidden=ICRNL|INLCR|IGNCR|ISTRIP|IXON|IXOFF|IXANY|PARMRK;
+    tcflag_t control_forbidden=PARENB|PARODD|CSTOPB|CRTSCTS;
+    return cfgetispeed(t)==B921600 && cfgetospeed(t)==B921600 &&
+        (t->c_cflag&CSIZE)==CS8 && (t->c_cflag&(CLOCAL|CREAD))==(CLOCAL|CREAD) &&
+        !(t->c_cflag&control_forbidden) && !(t->c_iflag&input_forbidden) &&
+        !(t->c_lflag&(ICANON|ECHO|ECHONL|ISIG|IEXTEN)) && !(t->c_oflag&OPOST) &&
+        t->c_cc[VMIN]==0 && t->c_cc[VTIME]==0;
+}
+static int live_open(const char *name) {
+    int fd=probe_open(name);
+    if(fd<0)return fd;
+    struct termios t,verified;
+    int error=0;
+    if(tcgetattr(fd,&t)<0){error=errno;goto failed;}
+    cfmakeraw(&t);
+    t.c_cflag &= ~(CSIZE|PARENB|PARODD|CSTOPB|CRTSCTS);
+    t.c_cflag |= CS8|CLOCAL|CREAD;
+    t.c_iflag &= ~(IXON|IXOFF|IXANY);
+    t.c_cc[VMIN]=0;t.c_cc[VTIME]=0;
+    if(cfsetispeed(&t,B921600)<0 || cfsetospeed(&t,B921600)<0){error=errno;goto failed;}
+    if(tcsetattr(fd,TCSANOW,&t)<0){error=errno;goto failed;}
+    if(tcgetattr(fd,&verified)<0){error=errno;goto failed;}
+    if(!live_matches(&verified)){error=EPROTO;goto failed;}
+    // Never treat reports buffered before this reader started as fresh controls.
+    if(tcflush(fd,TCIFLUSH)<0){error=errno;goto failed;}
+    return fd;
+failed:
+    ioctl(fd,TIOCNXCL);close(fd);return -error;
 }
 static int probe_info(int fd,char *buffer,size_t length) {
     struct termios t;
@@ -61,6 +92,10 @@ JNIEXPORT jint JNICALL Java_com_jumpingflash_ax12_NativePort_openExclusive(JNIEn
     int result=allowed?probe_open(name):-EINVAL;
     (*env)->ReleaseStringUTFChars(env,path,name);
     return result;
+}
+JNIEXPORT jint JNICALL Java_com_jumpingflash_ax12_NativePort_openLive(JNIEnv *env,jclass cls) {
+    (void)env;(void)cls;
+    return live_open("/dev/ttyS0");
 }
 JNIEXPORT jstring JNICALL Java_com_jumpingflash_ax12_NativePort_describeOpen(JNIEnv *env,jclass cls,jint fd) {
     (void)cls;char text[300];int result=probe_info(fd,text,sizeof(text));

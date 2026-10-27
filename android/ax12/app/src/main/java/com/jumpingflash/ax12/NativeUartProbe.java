@@ -25,7 +25,7 @@ public final class NativeUartProbe {
     String error(int code);
   }
 
-  public static final class DevicePort implements Port {
+  public static class DevicePort implements Port {
     public boolean available() {
       return NativePort.available();
     }

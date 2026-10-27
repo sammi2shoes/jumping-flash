@@ -642,4 +642,56 @@ public class ActivityTest {
               .contains("STALE"));
     }
   }
+
+  @Test
+  public void inputMonitorShowsLiveSourcesAndClearsThemWhenStale() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity a = c.get();
+      NativeRadioInput original = (NativeRadioInput) get(a, "nativeRadio");
+      assertTrue(
+          org.robolectric.util.ReflectionHelpers.getField(original, "port")
+              instanceof NativeRadioInput.LivePort);
+      NativeUartProbeTest.FakePort io = new NativeUartProbeTest.FakePort();
+      io.packet = NativeRadioInputTest.actualFrame();
+      NativeRadioInput reader = new NativeRadioInput(io);
+      set(a, "nativeRadio", reader);
+      reader.start(true);
+      long end = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
+      while (reader.sample() == null && System.nanoTime() < end) Thread.yield();
+      assertNotNull(reader.sample());
+      set(a, "rawSourcesExpanded", true);
+      Method page = MainActivity.class.getDeclaredMethod("inputMonitorPage");
+      page.setAccessible(true);
+      page.invoke(a);
+      InputMonitorView view = (InputMonitorView) get(a, "inputMonitor");
+      assertTrue(view.getContentDescription().toString().startsWith("LIVE"));
+      assertTrue(
+          ((android.widget.TextView) get(a, "rawSourcesView")).getText().toString().contains("S2"));
+      View root = a.getWindow().getDecorView();
+      root.measure(
+          View.MeasureSpec.makeMeasureSpec(1280, View.MeasureSpec.EXACTLY),
+          View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY));
+      root.layout(0, 0, 1280, 720);
+      Bitmap image = Bitmap.createBitmap(1280, 720, Bitmap.Config.ARGB_8888);
+      root.draw(new Canvas(image));
+      File dir = new File("build/screenshots");
+      dir.mkdirs();
+      try (FileOutputStream out = new FileOutputStream(new File(dir, "input-monitor.png"))) {
+        assertTrue(image.compress(Bitmap.CompressFormat.PNG, 100, out));
+      }
+      org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(120));
+      Method update = MainActivity.class.getDeclaredMethod("updateInputMonitor", long.class);
+      update.setAccessible(true);
+      update.invoke(a, android.os.SystemClock.elapsedRealtime());
+      assertTrue(view.getContentDescription().toString().startsWith("STALE"));
+      assertTrue(
+          ((android.widget.TextView) get(a, "rawSourcesView"))
+              .getText()
+              .toString()
+              .contains("No fresh"));
+      assertFalse((Boolean) get(a, "armedRequest"));
+      assertEquals(0, get(a, "txCount"));
+    }
+  }
 }

@@ -1,5 +1,11 @@
 # Current project status
 
+## Native-input startup fix and live monitor — APK v0.6.1
+
+A user screenshot showed the live input fd at9600baud/canonical mode instead of the known921600/raw stream. Live initialization now sets and reads back921600/raw8N1 itself, flushes buffered input, and reports LIVE only for verified fresh source packets. Passive capture still preserves settings. Tools now includes live gimbal plots, six channel/dial bars, SB/SC/SD indicators, report age and optional42-source readout. [Behavior, host validation and required hardware acceptance](AX12-INPUT-STARTUP.md). No Stick reflash or motor-profile change. The user reports direction is correct on both bare motor sides; no loaded reliability/timing claim follows.
+
+Future requested UI: [CAD-based input mapping with separate commanded/measured motion](CAD-INPUT-MAPPING-ROADMAP.md).
+
 ## Two-motor unloaded direction test
 
 Motor ID1 is RIGHT; newly updated RS05 ID2 is LEFT, with mirrored linkage. User currently has no mechanism/springs on the outputs and explicitly requested no reference-setting for this stage. [AX12DirectionTest v0.1 + APK v0.6.0](AX12-DIRECTION-TEST.md) use bounded velocity commands only, with SC selecting right/left/both. No zero, position target or position hold. Both motors are supervised, watchdog checks are requested in Pit Tools, and normal motion is capped near80° measured rotation /2.5sec per arm at1A/up to1rad/s. App-only firmware update preserves the existing partition/NVS layout. This new pair is compiled/simulated, not yet hardware accepted.

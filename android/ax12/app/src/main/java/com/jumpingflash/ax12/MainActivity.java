@@ -24,6 +24,98 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   private final Map<String, Button> robotButtons = new HashMap<>();
   private final Set<String> shownRobots = new HashSet<>();
   private Runnable pendingBluetoothAction;
+  private InputMonitorView inputMonitor;
+  private TextView inputMonitorStatus, rawSourcesView;
+  private boolean rawSourcesExpanded = false;
+  private long monitorAt = 0;
+
+  private static String sourceName(int id) {
+    switch (id) {
+      case 0:
+        return "RUD";
+      case 1:
+        return "ELE";
+      case 2:
+        return "THR";
+      case 3:
+        return "AIL";
+      case 12:
+        return "S1";
+      case 13:
+        return "S2";
+      case 21:
+        return "SB";
+      case 22:
+        return "SC";
+      case 23:
+        return "SD";
+      default:
+        return "Source";
+    }
+  }
+
+  private void inputMonitorPage() {
+    showTab(3);
+    body.removeAllViews();
+    nativeToggle = null;
+    nativeLiveStatus = null;
+    body.addView(text("LIVE INPUT MONITOR", 26));
+    body.addView(
+        text(
+            "Keep SB DISARMED while checking inputs. These are raw logical radio sources"
+                + " (-500…500); control reversals/calibration are applied separately. Gimbal plots"
+                + " show RUD/THR and AIL/ELE, not a forced physical stick mode.",
+            14));
+    LinearLayout monitorCard = card();
+    inputMonitorStatus = text("", 15);
+    monitorCard.addView(inputMonitorStatus);
+    inputMonitor = new InputMonitorView(this);
+    monitorCard.addView(inputMonitor, new LinearLayout.LayoutParams(-1, dp(350)));
+    body.addView(monitorCard);
+    LinearLayout actions = row();
+    addButton(actions, "Retry radio inputs", () -> setNativeEnabled(true));
+    addButton(actions, "Back to Pit Tools", () -> showTab(3));
+    body.addView(actions);
+    body.addView(
+        button(
+            rawSourcesExpanded ? "Hide all 42 raw sources" : "Show all 42 raw sources",
+            () -> {
+              rawSourcesExpanded = !rawSourcesExpanded;
+              inputMonitorPage();
+            }));
+    if (rawSourcesExpanded) {
+      rawSourcesView = text("", 14);
+      rawSourcesView.setTypeface(Typeface.MONOSPACE);
+      body.addView(rawSourcesView);
+    }
+    render();
+  }
+
+  private void updateInputMonitor(long now) {
+    if (inputMonitor == null) return;
+    NativeRadioInput.Sample sample = nativeRadio.sample();
+    inputMonitor.update(sample, now);
+    if (inputMonitorStatus != null) inputMonitorStatus.setText(nativeRadio.status());
+    if (rawSourcesView != null) {
+      if (sample == null || !sample.fresh(now)) {
+        rawSourcesView.setText("No fresh raw source values. Last-known controls are not live.");
+        return;
+      }
+      StringBuilder text = new StringBuilder();
+      for (int i = 0; i < sample.values.length; i++)
+        text.append(
+            String.format(
+                Locale.US,
+                "%02d  %-6s  %s%s",
+                i,
+                sourceName(i),
+                sample.values[i] == Short.MIN_VALUE
+                    ? "unavailable"
+                    : String.format(Locale.US, "%+d", sample.values[i]),
+                i % 3 == 2 ? "\n" : "      "));
+      rawSourcesView.setText(text.toString());
+    }
+  }
 
   private int dp(float value) {
     return (int) (value * getResources().getDisplayMetrics().density + .5f);
@@ -888,7 +980,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     prefs = getSharedPreferences("ax12", MODE_PRIVATE);
     nativeProbeMode = prefs.getBoolean("nativeProbeMode", false);
-    nativeRadio = new NativeRadioInput(new NativeUartProbe.DevicePort());
+    nativeRadio = new NativeRadioInput(new NativeRadioInput.LivePort());
     nativeEnabled = prefs.getBoolean("nativeEnabled", true);
     session = 1 + new java.security.SecureRandom().nextInt(65535);
     ble =
@@ -937,7 +1029,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       selectNativeInputs();
     } else detectInput();
     showTab(0);
-    log("AX12 app 0.6.0. Named RC profile; robot-side spinner/jump outputs not implemented.");
+    log("AX12 app 0.6.1. Named RC profile; robot-side spinner/jump outputs not implemented.");
     handler.post(pump);
   }
 
@@ -987,6 +1079,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     nativeOwnerCheck = null;
     nativeToggle = null;
     nativeLiveStatus = null;
+    inputMonitor = null;
+    inputMonitorStatus = rawSourcesView = null;
     mission = null;
     missionStatus =
         missionDetails = connectionSteps = connectionHelp = missionTitle = driveHint = null;
@@ -1553,6 +1647,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
 
   private void diagnostics() {
     body.addView(text("PIT TOOLS", 26));
+    body.addView(button("Live input monitor • gimbals, dials & switches", this::inputMonitorPage));
     if (directionTest()) {
       LinearLayout checks = card();
       checks.addView(text("TWO-MOTOR DIRECTION TEST", 20));
@@ -2102,6 +2197,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
           long now = SystemClock.elapsedRealtime();
           if (foreground) {
             consumeNativeInputs();
+            if (inputMonitor != null && now - monitorAt >= 40) {
+              updateInputMonitor(now);
+              monitorAt = now;
+            }
             if (armedRequest && (!freshTelemetry() || !driveEnable() || !liveInputFresh()))
               disarm("Input enable/device or telemetry lost");
             if (armedRequest && (robotFlags & 4) == 0 && now - armAt > 500)
@@ -2393,6 +2492,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                           : ble.scanning
                               ? "01  SEARCHING FOR YOUR STICK…"
                               : "01  FIND     →     02  PAIR     →     03  CONNECTED");
+    updateInputMonitor(SystemClock.elapsedRealtime());
     if (sticks != null) sticks.invalidate();
   }
 
@@ -2521,7 +2621,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
         if (out == null) throw new IOException("No output stream");
         String header =
-            "Jumping Flash AX12 0.6.0\nNamed profile "
+            "Jumping Flash AX12 0.6.1\nNamed profile "
                 + radioMappingText()
                 + "\nDevice "
                 + deviceName
@@ -2556,7 +2656,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                       + " fresh="
                       + liveInputFresh()
                       + " status="
-                      + nativeRadio.status()
+                      + nativeRadio.details()
                       + "\n")
                   .getBytes(java.nio.charset.StandardCharsets.UTF_8));
         out.write(

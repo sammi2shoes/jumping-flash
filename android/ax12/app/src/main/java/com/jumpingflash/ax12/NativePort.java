@@ -4,7 +4,9 @@ import android.system.*;
 import java.io.File;
 import java.util.Locale;
 
-/** JNI is loaded only for an explicit passive probe; never a control source. */
+/**
+ * Read-only serial bytes; live input configures raw921600/8N1, passive capture preserves termios.
+ */
 public final class NativePort {
   private static boolean attempted = false, loaded = false;
   private static String loadError = "not loaded";
@@ -29,6 +31,8 @@ public final class NativePort {
   }
 
   public static native int openExclusive(String path);
+
+  public static native int openLive();
 
   public static native String describeOpen(int fd);
 

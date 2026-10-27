@@ -8,7 +8,7 @@ The previous single-leg position controller is still available. This separate di
 
 ## Downloads
 
-- [AX12 APK v0.6.0](../releases/JumpingFlash-AX12-v0.6.0.apk) — update the installed app in place.
+- [AX12 APK v0.6.1](../releases/JumpingFlash-AX12-v0.6.1.apk) — update the installed app in place.
 - [Direction-test Stick package v0.1](../releases/AX12DirectionTest-v0.1.zip) — application update binary, self-contained Arduino sketch and instructions.
 
 ## Flash the Stick
@@ -29,7 +29,7 @@ Arduino alternative: open `AX12DirectionTest/AX12DirectionTest.ino` in the ZIP; 
 
 ## Run the test
 
-1. Install APK v0.6.0. Keep both outputs unloaded, secure the motor bodies and keep SB at the displayed DISARMED position. Power both motor batteries.
+1. Install APK v0.6.1. Keep both outputs unloaded, secure the motor bodies and keep SB at the displayed DISARMED position. Power both motor batteries.
 2. CONNECT → Reconnect last Stick (or Find my Stick). Internal inputs remain default-on. Both motor IDs must respond before commissioning can proceed.
 3. **Pit Tools → Check BOTH motor watchdogs • zero speed.** Keep SB DISARMED and both gimbals centered for about6seconds. This is a zero-**speed** test, not a zero-position operation. It briefly enables each motor at1A, runs a timeout-disabled A/B control and a20,000-count timeout trial, then stops both and restores the nonzero timeout. No nonzero velocity is commanded during this check.
 4. Wait for **DIRECTION TEST READY** / WD PASS on the Stick. An interrupted or failed check remains unverified and blocks normal movement. STOP, Stick A, Bluetooth/input loss or leaving SB DISARMED cancels the check; if a STOP cannot be confirmed, cut both motor supplies. As in the previously tested A/B procedure, the timeout-disabled control trial temporarily has no motor-side watchdog fallback.
@@ -58,3 +58,7 @@ Command byte15 is0normally,1for one explicit disarmed, zero-input watchdog reque
 Build: `scripts/build.sh -e ax12-direction-test` after the shared tool/core setup. `scripts/check.sh` includes the new real-sketch CAN simulation and existing suites. Tests verify independent ID routing and mirrored commands, both-mode operation, no zero/position commands, watchdog qualification/failure/abort, global STOP, neutral zero velocity, rotation/time guards, partial-arming cleanup, loss of an unselected motor, BLE loss/no resume and bus-off recovery without enable. Android tests cover capability64 arming without a reference, zero-speed maintenance packets, fresh/stale telemetry and the existing UI/connection/input behavior.
 
 Builds and simulations are not physical acceptance: this exact two-motor direction build still needs testing on the user's unloaded hardware. Existing single-leg AX12 connection, input, motion and four powered failsafe checks were reported passed by the user **with the ankle spring disconnected**; that does not validate the new left motor or this two-motor firmware.
+
+## Input reliability and monitoring update
+
+APK v0.6.1 initializes the local UART independently and adds TOOLS → Live input monitor. [Details and cold-start acceptance](AX12-INPUT-STARTUP.md). Stick v0.1, velocity signs, limits and watchdog check are unchanged. Both bare motor directions have been reported correct by the user.

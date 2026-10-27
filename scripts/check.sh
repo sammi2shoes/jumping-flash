@@ -12,5 +12,7 @@ g++ -std=c++17 -Itests/jog-host tests/position-step-host/test.cpp -o "$check_dir
 "$check_dir/position-step"
 g++ -std=c++17 -Itests/post-update-host tests/watchdog-observer-host/test.cpp -o "$check_dir/watchdog-observer"
 "$check_dir/watchdog-observer"
+cc -Wall -Wextra -Werror tests/native-uart/port_test.c -o "$check_dir/native-uart"
+"$check_dir/native-uart"
 python3 tests/test_watchdog_disconnect.py
 python3 -m py_compile scripts/setup.py scripts/log_serial.py scripts/watchdog_disconnect.py reference/rs05_control_gui.py
