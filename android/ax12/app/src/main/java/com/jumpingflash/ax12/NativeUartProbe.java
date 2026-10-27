@@ -18,6 +18,14 @@ public final class NativeUartProbe {
 
     int open(String path);
 
+    default boolean supportsLinkProbe() {
+      return false;
+    }
+
+    default int linkProbe(int fd) {
+      return -android.system.OsConstants.ENOTSUP;
+    }
+
     int read(int fd, byte[] data);
 
     void close(int fd);

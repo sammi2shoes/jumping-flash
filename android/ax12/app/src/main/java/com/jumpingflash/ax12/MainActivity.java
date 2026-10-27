@@ -1029,7 +1029,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       selectNativeInputs();
     } else detectInput();
     showTab(0);
-    log("AX12 app 0.6.1. Named RC profile; robot-side spinner/jump outputs not implemented.");
+    log("AX12 app 0.6.2. Named RC profile; robot-side spinner/jump outputs not implemented.");
     handler.post(pump);
   }
 
@@ -1488,14 +1488,15 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private void nativeInputPage() {
-    body.addView(text("AX12 internal inputs • live single-leg control", 20));
+    body.addView(text("AX12 internal radio • advanced capture", 20));
     body.addView(
         text(
-            "Initialize RadioMasterAX once, then Force stop it in Android settings. Remove the"
-                + " DSC-to-USB cable. Live input uses the verified internal ttyS0 reports; no UART"
-                + " writes. Inputs start by default and resume automatically after backgrounding."
-                + " Turn them OFF before opening RadioMasterAX. Verify gimbals centered, throttle"
-                + " OFF and SB DISARMED on the dashboard before connecting the rig.",
+            "Keep RadioMasterAX stopped while this app owns the internal UART. No DSC-to-USB cable"
+                + " is needed. Live input verifies its own serial settings and can send up to three"
+                + " fixed link-discovery probes before the first valid input. Cold-start"
+                + " independence is still being tested. Inputs resume after backgrounding. Turn"
+                + " them OFF before opening RadioMasterAX. Verify gimbals centered, throttle OFF"
+                + " and SB DISARMED on the dashboard before connecting the rig.",
             14));
     body.addView(
         button(
@@ -2621,7 +2622,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
         if (out == null) throw new IOException("No output stream");
         String header =
-            "Jumping Flash AX12 0.6.1\nNamed profile "
+            "Jumping Flash AX12 0.6.2\nNamed profile "
                 + radioMappingText()
                 + "\nDevice "
                 + deviceName

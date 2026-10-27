@@ -6,7 +6,7 @@
 
 [New interface and guided Bluetooth connection](../../docs/AX12-UI-v0.5.md).
 
-Current: **v0.6.1**, default-on cable-free AX12 internal inputs (explicit remembered OFF switch, automatic foreground resume) plus matching single-leg Stick firmware. See [AX12 single-leg setup](../../docs/AX12-SINGLE-LEG.md). Older gamepad/probe instructions below remain historical context. The live internal reader and BLE outputs are now integrated; physical acceptance of this pair is pending.
+Current: **v0.6.2** ([cold-start probe scope and test](../../docs/AX12-COLD-START-PROBE.md)), default-on cable-free AX12 internal inputs (explicit remembered OFF switch, automatic foreground resume) plus matching single-leg Stick firmware. See [AX12 single-leg setup](../../docs/AX12-SINGLE-LEG.md). Older gamepad/probe instructions below remain historical context. The live internal reader and BLE outputs are now integrated; physical acceptance of this pair is pending.
 
 Current app build: `0.3.0`, Android9/API28 or later, ARM64, landscape. APK: [download](https://github.com/sammi2shoes/jumping-flash/raw/refs/heads/main/releases/JumpingFlash-AX12-v0.3.0.apk).
 

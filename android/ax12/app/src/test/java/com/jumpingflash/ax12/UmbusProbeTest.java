@@ -130,4 +130,15 @@ public class UmbusProbeTest {
     assertNull(p.sources);
     assertTrue(p.badFrames > 0);
   }
+
+  @Test
+  public void stockDiscoveryPacketIsNotAControlInput() {
+    byte[] b = {(byte) 0xa6, 7, 0x2b, 4, (byte) 0xff, 1, (byte) 0xf4};
+    assertEquals(0xf4, UmbusProbe.crc8(b, 1, 6));
+    UmbusProbe d = new UmbusProbe();
+    d.feed(b, b.length, 100);
+    assertEquals(1, d.crcFrames);
+    assertEquals(0, d.channelCandidates);
+    assertNull(d.sources);
+  }
 }

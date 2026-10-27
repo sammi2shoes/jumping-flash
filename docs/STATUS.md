@@ -1,5 +1,9 @@
 # Current project status
 
+## Cold-start discovery probe — APK v0.6.2
+
+The v0.6.1 cold-boot log verified921600/raw UART setup but received zero bytes. v0.6.2 adds at most three fixed stock link-discovery packets before any accepted control report, plus probe/RX diagnostic export. No unknown model/RF configuration traffic or motor behavior changes. [Evidence, scope and cold-boot test](AX12-COLD-START-PROBE.md). Build/lint and67 Android tests pass; actual startup recovery remains unverified.
+
 ## Native-input startup fix and live monitor — APK v0.6.1
 
 A user screenshot showed the live input fd at9600baud/canonical mode instead of the known921600/raw stream. Live initialization now sets and reads back921600/raw8N1 itself, flushes buffered input, and reports LIVE only for verified fresh source packets. Passive capture still preserves settings. Tools now includes live gimbal plots, six channel/dial bars, SB/SC/SD indicators, report age and optional42-source readout. [Behavior, host validation and required hardware acceptance](AX12-INPUT-STARTUP.md). No Stick reflash or motor-profile change. The user reports direction is correct on both bare motor sides; no loaded reliability/timing claim follows.

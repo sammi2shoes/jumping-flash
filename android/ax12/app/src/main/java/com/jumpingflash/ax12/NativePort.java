@@ -5,7 +5,8 @@ import java.io.File;
 import java.util.Locale;
 
 /**
- * Read-only serial bytes; live input configures raw921600/8N1, passive capture preserves termios.
+ * Live UART configures raw921600/8N1 and a fixed discovery probe; passive capture remains
+ * read-only.
  */
 public final class NativePort {
   private static boolean attempted = false, loaded = false;
@@ -33,6 +34,8 @@ public final class NativePort {
   public static native int openExclusive(String path);
 
   public static native int openLive();
+
+  public static native int sendLinkProbe(int fd);
 
   public static native String describeOpen(int fd);
 

@@ -170,4 +170,148 @@ public class NativeRadioInputTest {
       reader.stop();
     }
   }
+
+  static final class ProbePort implements NativeUartProbe.Port {
+    java.util.concurrent.atomic.AtomicInteger probes =
+        new java.util.concurrent.atomic.AtomicInteger();
+    volatile boolean answer = false, delivered = false;
+    volatile int closes = 0, result = 7;
+    final java.util.concurrent.CountDownLatch opened = new java.util.concurrent.CountDownLatch(1);
+
+    public boolean available() {
+      return true;
+    }
+
+    public String availability() {
+      return "test";
+    }
+
+    public String describe(String p) {
+      return p;
+    }
+
+    public String error(int e) {
+      return "errno" + e;
+    }
+
+    public int open(String p) {
+      opened.countDown();
+      return 42;
+    }
+
+    public void close(int fd) {
+      closes++;
+    }
+
+    public boolean supportsLinkProbe() {
+      return true;
+    }
+
+    public int linkProbe(int fd) {
+      assertEquals(42, fd);
+      probes.incrementAndGet();
+      return result;
+    }
+
+    public int read(int fd, byte[] out) {
+      if (answer && probes.get() > 0 && !delivered) {
+        delivered = true;
+        byte[] b = actualFrame();
+        System.arraycopy(b, 0, out, 0, b.length);
+        return b.length;
+      }
+      try {
+        Thread.sleep(2);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+      return 0;
+    }
+  }
+
+  static void awaitProbe(ProbePort p, int count) {
+    long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (p.probes.get() < count && System.nanoTime() < end) Thread.yield();
+    assertEquals(count, p.probes.get());
+  }
+
+  @Test
+  public void startupProbesAreBoundedAndDoNotCreateLiveInputs() throws Exception {
+    ProbePort p = new ProbePort();
+    NativeRadioInput r = new NativeRadioInput(p);
+    r.start(true);
+    try {
+      assertTrue(p.opened.await(2, TimeUnit.SECONDS));
+      assertEquals(0, p.probes.get());
+      for (int i = 1; i <= 3; i++) {
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(
+            java.time.Duration.ofMillis(i == 1 ? 250 : 2000));
+        awaitProbe(p, i);
+        assertNull(r.sample());
+        assertTrue(r.status().contains("NOT LIVE"));
+      }
+      org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(10));
+      Thread.sleep(20);
+      assertEquals(3, p.probes.get());
+      assertTrue(r.details().contains("link_probe_tx_bytes=21"));
+    } finally {
+      r.stop();
+    }
+  }
+
+  @Test
+  public void acceptsInputsArrivingAfterProbeThenDoesNotTransmitAgain() throws Exception {
+    ProbePort p = new ProbePort();
+    p.answer = true;
+    NativeRadioInput r = new NativeRadioInput(p);
+    r.start(true);
+    try {
+      assertTrue(p.opened.await(2, TimeUnit.SECONDS));
+      org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(250));
+      awaitProbe(p, 1);
+      long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+      while (r.sample() == null && System.nanoTime() < end) Thread.yield();
+      assertNotNull(r.sample());
+      assertTrue(r.status().startsWith("LIVE"));
+      org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(5));
+      Thread.sleep(20);
+      assertEquals(1, p.probes.get());
+      assertTrue(r.status().startsWith("STALE"));
+      assertTrue(r.details().contains("first_rx_hex=A663"));
+    } finally {
+      r.stop();
+    }
+  }
+
+  @Test
+  public void stoppingBeforeFirstProbeSuppressesAllStartupTransmits() throws Exception {
+    ProbePort p = new ProbePort();
+    NativeRadioInput r = new NativeRadioInput(p);
+    r.start(true);
+    assertTrue(p.opened.await(2, TimeUnit.SECONDS));
+    r.stop();
+    long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (r.running() && System.nanoTime() < end) Thread.yield();
+    org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(5));
+    assertEquals(0, p.probes.get());
+    assertEquals(1, p.closes);
+  }
+
+  @Test
+  public void startupWriteFailureClosesPortAndDoesNotCreateInputs() throws Exception {
+    ProbePort p = new ProbePort();
+    p.result = -13;
+    NativeRadioInput r = new NativeRadioInput(p);
+    r.start(true);
+    assertTrue(p.opened.await(2, TimeUnit.SECONDS));
+    org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(250));
+    awaitProbe(p, 1);
+    long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (r.running() && System.nanoTime() < end) Thread.yield();
+    assertFalse(r.running());
+    assertNull(r.sample());
+    assertEquals(1, p.closes);
+    assertTrue(r.status().contains("write failed"));
+    assertTrue(r.details().contains("link_probe_tx_bytes=0"));
+  }
 }

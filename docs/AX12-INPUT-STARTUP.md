@@ -1,5 +1,7 @@
 # AX12 v0.6.1 — independent serial setup and live input monitor
 
+**Version note:** The read-only live behavior below describes v0.6.1. [v0.6.2](AX12-COLD-START-PROBE.md) adds a restricted fixed discovery transmit; passive capture remains read-only.
+
 [Download APK v0.6.1](../releases/JumpingFlash-AX12-v0.6.1.apk). Install over the existing app. **No Stick reflash is needed.** Direction-test motor commands, mirrored signs, current/speed/run guards, CAN watchdog checks and SB rearming rules are unchanged.
 
 ## What failed

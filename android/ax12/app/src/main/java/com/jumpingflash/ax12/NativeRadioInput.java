@@ -2,9 +2,22 @@ package com.jumpingflash.ax12;
 
 import android.os.SystemClock;
 
-/** Continuous read-only internal inputs. A complete CRC8 source report is the heartbeat. */
+/**
+ * Internal inputs with bounded fixed link-discovery startup. Only valid source reports refresh
+ * input.
+ */
 public final class NativeRadioInput {
   public static final class LivePort extends NativeUartProbe.DevicePort {
+    @Override
+    public boolean supportsLinkProbe() {
+      return true;
+    }
+
+    @Override
+    public int linkProbe(int fd) {
+      return NativePort.sendLinkProbe(fd);
+    }
+
     @Override
     public int open(String path) {
       return "/dev/ttyS0".equals(path) ? NativePort.openLive() : -android.system.OsConstants.EINVAL;
@@ -14,6 +27,8 @@ public final class NativeRadioInput {
   public static final int[] SOURCES = {2, 3, 1, 13, 21, 22, 23};
   public static final int AXIS_BASE = 1000;
   public static final long STALE_MS = 120;
+  public static final int MAX_LINK_PROBES = 3;
+  public static final long FIRST_PROBE_MS = 250, PROBE_INTERVAL_MS = 2000;
 
   public static final class Sample {
     public final short[] values;
@@ -41,6 +56,9 @@ public final class NativeRadioInput {
       longGaps = 0,
       startedAt = 0;
   private volatile int crcFrames = 0, badFrames = 0, discarded = 0;
+  private volatile int linkProbes = 0, linkProbeBytes = 0;
+  private volatile long lastProbeAt = -1;
+  private volatile String firstRx = "none", lastFrame = "none";
   private volatile String portDetails = "Not opened";
   private volatile String status = "Stopped";
 
@@ -68,7 +86,9 @@ public final class NativeRadioInput {
     if (rejected > 0)
       return "Waiting for valid radio reports • " + rejected + " rejected • motor commands blocked";
     return bytesRead == 0
-        ? "Port initialized at 921600 / raw 8N1 • waiting for radio data • NOT LIVE"
+        ? "UART verified at 921600 • startup probe "
+            + linkProbes
+            + "/3 • waiting for radio data • NOT LIVE"
         : "Receiving serial bytes, but no valid radio inputs yet • NOT LIVE";
   }
 
@@ -89,6 +109,10 @@ public final class NativeRadioInput {
         + firstAcceptedAt
         + " last_report_ms="
         + lastAcceptedAt
+        + " started_at_ms="
+        + startedAt
+        + " session_elapsed_ms="
+        + (SystemClock.elapsedRealtime() - startedAt)
         + " startup_ms="
         + (firstAcceptedAt < 0 ? -1 : firstAcceptedAt - startedAt)
         + " current_gap_ms="
@@ -99,6 +123,16 @@ public final class NativeRadioInput {
         + badFrames
         + " discarded_bytes="
         + discarded
+        + " link_probes="
+        + linkProbes
+        + " link_probe_tx_bytes="
+        + linkProbeBytes
+        + " last_probe_ms="
+        + lastProbeAt
+        + "\nfirst_rx_hex="
+        + firstRx
+        + "\nlast_crc_frame="
+        + lastFrame
         + "\n"
         + status();
   }
@@ -126,6 +160,9 @@ public final class NativeRadioInput {
     startedAt = SystemClock.elapsedRealtime();
     crcFrames = badFrames = discarded = 0;
     portDetails = "Not opened";
+    linkProbes = linkProbeBytes = 0;
+    lastProbeAt = -1;
+    firstRx = lastFrame = "none";
     stop = false;
     running = true;
     status = "Opening internal input reader…";
@@ -161,6 +198,25 @@ public final class NativeRadioInput {
       byte[] b = new byte[512];
       UmbusProbe decoder = new UmbusProbe();
       while (!stop) {
+        long tick = SystemClock.elapsedRealtime();
+        if (accepted == 0
+            && port.supportsLinkProbe()
+            && linkProbes < MAX_LINK_PROBES
+            && tick - startedAt >= FIRST_PROBE_MS
+            && (lastProbeAt < 0 || tick - lastProbeAt >= PROBE_INTERVAL_MS)) {
+          if (stop) break;
+          linkProbes++;
+          lastProbeAt = tick;
+          int sent = port.linkProbe(fd);
+          if (sent != 7) {
+            status =
+                "Radio link-discovery write failed: "
+                    + (sent < 0 ? port.error(sent) : "short write")
+                    + " • inputs blocked";
+            return;
+          }
+          linkProbeBytes += sent;
+        }
         int n = port.read(fd, b);
         if (n < 0 || n > b.length) {
           status = "Read failed: " + port.error(n);
@@ -168,12 +224,14 @@ public final class NativeRadioInput {
         }
         if (n == 0) continue;
         bytesRead += n;
+        if (firstRx.equals("none")) firstRx = UmbusProbe.hex(b, 0, Math.min(n, 256));
         long now = SystemClock.elapsedRealtime();
         int before = decoder.channelCandidates;
         decoder.feed(b, n, now);
         crcFrames = decoder.crcFrames;
         badFrames = decoder.badFrames;
         discarded = decoder.discarded;
+        lastFrame = decoder.lastFrame;
         if (decoder.channelCandidates != before) {
           if (decoder.exactLiveLayout && valid(decoder.sources)) {
             if (lastAcceptedAt >= 0) {

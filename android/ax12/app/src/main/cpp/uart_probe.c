@@ -1,4 +1,4 @@
-// Read-only UART byte I/O. Passive capture preserves settings; live input sets/validates raw921600/8N1. No serial writes, shell, root, modem-line or RF commands.
+// Passive read-only capture and restricted live UART startup. Passive capture preserves settings; live input sets/validates raw921600/8N1. Live path permits only a fixed link-discovery write; no arbitrary packet, shell, root, modem-line or radio-configuration API.
 #ifndef JF_UART_CORE_TEST
 #include <jni.h>
 #endif
@@ -12,8 +12,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-static int probe_open(const char *name) {
-    int fd=open(name,O_RDONLY|O_NOCTTY|O_NONBLOCK|O_CLOEXEC);
+static int port_open(const char *name,int access) {
+    int fd=open(name,access|O_NOCTTY|O_NONBLOCK|O_CLOEXEC);
     if(fd<0)return -errno;
     struct stat info;
     if(fstat(fd,&info)<0){int error=errno;close(fd);return -error;}
@@ -21,9 +21,10 @@ static int probe_open(const char *name) {
     if(ioctl(fd,TIOCEXCL)<0){int error=errno;close(fd);return -error;}
     return fd;
 }
+static int probe_open(const char *name) { return port_open(name,O_RDONLY); }
 // Live configuration is deliberately separate from the passive probe path.
 static int live_matches(const struct termios *t) {
-    tcflag_t input_forbidden=ICRNL|INLCR|IGNCR|ISTRIP|IXON|IXOFF|IXANY|PARMRK;
+    tcflag_t input_forbidden=IGNBRK|BRKINT|ICRNL|INLCR|IGNCR|ISTRIP|IXON|IXOFF|IXANY|PARMRK;
     tcflag_t control_forbidden=PARENB|PARODD|CSTOPB|CRTSCTS;
     return cfgetispeed(t)==B921600 && cfgetospeed(t)==B921600 &&
         (t->c_cflag&CSIZE)==CS8 && (t->c_cflag&(CLOCAL|CREAD))==(CLOCAL|CREAD) &&
@@ -32,7 +33,7 @@ static int live_matches(const struct termios *t) {
         t->c_cc[VMIN]==0 && t->c_cc[VTIME]==0;
 }
 static int live_open(const char *name) {
-    int fd=probe_open(name);
+    int fd=port_open(name,O_RDWR);
     if(fd<0)return fd;
     struct termios t,verified;
     int error=0;
@@ -51,6 +52,29 @@ static int live_open(const char *name) {
     return fd;
 failed:
     ioctl(fd,TIOCNXCL);close(fd);return -error;
+}
+// Exact stock AppComHub::onTimeOut link-discovery frame (group2B/source4/destFF/payload01).
+// Deliberately no caller-supplied bytes or generic serial-write entry point.
+static int live_link_probe(int fd) {
+    static const unsigned char frame[]={0xa6,0x07,0x2b,0x04,0xff,0x01,0xf4};
+    int flags=fcntl(fd,F_GETFL);struct termios t;
+    if(flags<0)return -errno;
+    if((flags&O_ACCMODE)!=O_RDWR)return -EACCES;
+    if(tcgetattr(fd,&t)<0)return -errno;
+    if(!live_matches(&t))return -EPROTO;
+    size_t used=0;
+    // Seven bytes fit in one UART buffer. Bound partial-write recovery and never spin.
+    for(int attempt=0;attempt<4 && used<sizeof(frame);attempt++) {
+        struct pollfd out={.fd=fd,.events=POLLOUT};
+        int ready=poll(&out,1,5);
+        if(ready<0){if(errno==EINTR)continue;return -errno;}
+        if(!ready)return -ETIMEDOUT;
+        if(out.revents&(POLLERR|POLLHUP|POLLNVAL))return -EIO;
+        ssize_t n=write(fd,frame+used,sizeof(frame)-used);
+        if(n<0){if(errno==EAGAIN||errno==EINTR)continue;return -errno;}
+        used+=(size_t)n;
+    }
+    return used==sizeof(frame)?(int)used:-EIO;
 }
 static int probe_info(int fd,char *buffer,size_t length) {
     struct termios t;
@@ -96,6 +120,9 @@ JNIEXPORT jint JNICALL Java_com_jumpingflash_ax12_NativePort_openExclusive(JNIEn
 JNIEXPORT jint JNICALL Java_com_jumpingflash_ax12_NativePort_openLive(JNIEnv *env,jclass cls) {
     (void)env;(void)cls;
     return live_open("/dev/ttyS0");
+}
+JNIEXPORT jint JNICALL Java_com_jumpingflash_ax12_NativePort_sendLinkProbe(JNIEnv *env,jclass cls,jint fd) {
+    (void)env;(void)cls;return live_link_probe(fd);
 }
 JNIEXPORT jstring JNICALL Java_com_jumpingflash_ax12_NativePort_describeOpen(JNIEnv *env,jclass cls,jint fd) {
     (void)cls;char text[300];int result=probe_info(fd,text,sizeof(text));
