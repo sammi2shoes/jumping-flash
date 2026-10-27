@@ -1,6 +1,6 @@
 # AX12 cold-start discovery probe — APK v0.6.2
 
-[Download APK](../releases/JumpingFlash-AX12-v0.6.2.apk). Install over the existing app; no Stick reflash. Motor control profiles and failsafes are unchanged. This is a startup experiment awaiting AX12 hardware validation.
+[Download APK](../releases/JumpingFlash-AX12-v0.6.2.apk). Install over the existing app; no Stick reflash. Motor control profiles and failsafes are unchanged. Cold-start input recovery is now user-confirmed on the AX12; broader reliability validation remains pending.
 
 ## Evidence and change
 
@@ -19,7 +19,9 @@ A discovery response never creates live controls. Existing CRC/layout/value vali
 3. Open Tools → Live input monitor. Wait about5seconds, then move gimbals, dials and switches.
 4. If inputs remain NOT LIVE, export the session log. Do not launch the stock app before exporting; that would change the startup state being investigated.
 
-A passing startup run still does not establish competition reliability. Repeated cold boots, interruptions and stale-input fault testing remain necessary.
+## Reported hardware result
+
+The user reported live inputs immediately on the first v0.6.2 cold boot, then passed all three requested repeat cold-boot checks without opening RadioMaster. These four reported starts confirm the startup behavior on this AX12. They do not independently isolate which initialization operation caused recovery, measure startup latency, or establish interruption recovery and competition reliability. No motor watchdog or disconnect result is inferred from these input-only checks.
 
 ## Software verification
 
