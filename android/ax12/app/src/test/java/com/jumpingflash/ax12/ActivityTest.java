@@ -620,6 +620,73 @@ public class ActivityTest {
   }
 
   @Test
+  public void dualPositionRequiresBothReferencesAndMaintenanceNeverArms() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity a = c.get();
+      Object attach =
+          org.robolectric.util.ReflectionHelpers.getField(
+              a.getWindow().getDecorView(), "mAttachInfo");
+      org.robolectric.util.ReflectionHelpers.setField(attach, "mHasWindowFocus", true);
+      NativeRadioInput reader = (NativeRadioInput) get(a, "nativeRadio");
+      org.robolectric.util.ReflectionHelpers.setField(reader, "running", true);
+      org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(1));
+      long now = android.os.SystemClock.elapsedRealtime();
+      ((BleLink) get(a, "ble")).ready = true;
+      set(a, "telemetryAt", now);
+      set(a, "robotFlags", 1);
+      set(a, "capabilities", 128);
+      UmbusProbe d = new UmbusProbe();
+      byte[] actual = NativeRadioInputTest.actualFrame();
+      d.feed(actual, actual.length, now);
+      short[] values = d.sources.clone();
+      values[1] = values[3] = 0;
+      values[2] = -500;
+      values[21] = -500;
+      values[22] = -500;
+      Method consume = MainActivity.class.getDeclaredMethod("consumeNativeInputs");
+      consume.setAccessible(true);
+      org.robolectric.util.ReflectionHelpers.setField(
+          reader, "latest", new NativeRadioInput.Sample(values, now, 1));
+      consume.invoke(a);
+      values[21] = 0;
+      org.robolectric.util.ReflectionHelpers.setField(
+          reader, "latest", new NativeRadioInput.Sample(values, now, 2));
+      consume.invoke(a);
+      assertFalse((Boolean) get(a, "armedRequest")); // no reference: blocked
+      set(a, "robotFlags", 3);
+      values[21] = -500;
+      org.robolectric.util.ReflectionHelpers.setField(
+          reader, "latest", new NativeRadioInput.Sample(values, now, 10));
+      consume.invoke(a);
+      values[21] = 0;
+      org.robolectric.util.ReflectionHelpers.setField(
+          reader, "latest", new NativeRadioInput.Sample(values, now, 11));
+      consume.invoke(a);
+      assertTrue((Boolean) get(a, "armedRequest"));
+      values[21] = -500;
+      org.robolectric.util.ReflectionHelpers.setField(
+          reader, "latest", new NativeRadioInput.Sample(values, now, 3));
+      consume.invoke(a);
+      Method maintenance = MainActivity.class.getDeclaredMethod("requestWatchdogCheck");
+      maintenance.setAccessible(true);
+      maintenance.invoke(a);
+      assertFalse((Boolean) get(a, "armedRequest"));
+      assertFalse((Boolean) get(a, "launchPending"));
+      assertTrue(
+          (Boolean) get(a, "maintenancePending")); // no real GATT in host test, remains pending
+      set(a, "robotFlags", 35);
+      values[21] = 0;
+      org.robolectric.util.ReflectionHelpers.setField(
+          reader, "latest", new NativeRadioInput.Sample(values, now, 4));
+      consume.invoke(a);
+      assertFalse(
+          (Boolean) get(a, "armedRequest")); // pending watchdog blocks even inconsistent ready bit
+      org.robolectric.util.ReflectionHelpers.setField(reader, "running", false);
+    }
+  }
+
+  @Test
   public void directionTelemetryNeedsNoReferenceAndStaleFeedbackIsNotReady() throws Exception {
     try (ActivityController<MainActivity> c =
         Robolectric.buildActivity(MainActivity.class).setup()) {
@@ -652,6 +719,49 @@ public class ActivityTest {
               .getText()
               .toString()
               .contains("Not used"));
+      org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(201));
+      render.invoke(a);
+      assertTrue(
+          ((android.widget.TextView) get(a, "missionStatus"))
+              .getText()
+              .toString()
+              .contains("STALE"));
+    }
+  }
+
+  @Test
+  public void dualPositionTelemetryKeepsHighCapabilityBitAndShowsReference() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity a = c.get();
+      ((BleLink) get(a, "ble")).ready = true;
+      org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(1));
+      byte[] frame = new byte[20];
+      frame[0] = 'J';
+      frame[1] = 'F';
+      frame[2] = 2;
+      frame[3] = (byte) 0x81;
+      Protocol.put(frame, 4, 1);
+      frame[6] = 3;
+      frame[15] = (byte) 128;
+      Protocol.put(frame, 8, 125);
+      Protocol.put(frame, 10, 250);
+      Protocol.put(frame, 16, (Integer) get(a, "session"));
+      Protocol.put(frame, 18, Protocol.crc(frame, 18));
+      Method accept = MainActivity.class.getDeclaredMethod("acceptTelemetry", byte[].class);
+      accept.setAccessible(true);
+      accept.invoke(a, (Object) frame);
+      assertEquals(128, get(a, "capabilities"));
+      assertEquals(1.25f, (Float) get(a, "leftDeg"), .001f);
+      assertEquals(2.5f, (Float) get(a, "rightDeg"), .001f);
+      Method render = MainActivity.class.getDeclaredMethod("render");
+      render.setAccessible(true);
+      render.invoke(a);
+      assertTrue(
+          ((android.widget.TextView) get(a, "missionDetails"))
+              .getText()
+              .toString()
+              .contains("VALID"));
       org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(201));
       render.invoke(a);
       assertTrue(

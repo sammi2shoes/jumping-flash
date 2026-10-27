@@ -1,6 +1,8 @@
 # Jumping Flash
 
-Arduino C++ development for an operator-controlled, 3 lb NHRL robot with a spring-foot four-bar leg mechanism. The actual controller is **M5StickC Plus2**, with an M5 MiniCAN unit and **RobStride 05 CAN2.0 firmware0.5.0.14**. One leg motor is available now; two are planned. The spinner ESC is AM32, 100 A, with PWM/DShot undecided.
+Arduino C++ development for an operator-controlled, 3 lb NHRL robot with a spring-foot four-bar leg mechanism. The actual controller is **M5StickC Plus2**, with an M5 MiniCAN unit and **RobStride 05 CAN2.0 firmware0.5.0.14**. Two RS05 leg motors are available: right ID1 and mirrored left ID2. The spinner ESC is AM32, 100 A, with PWM/DShot undecided.
+
+**Dual position bench:** [APK v0.7.0 + Stick v0.1](docs/AX12-DUAL-POSITION.md): separate fixed zeros, mirrored 0–80° travel, neutral hold. Bare-output acceptance pending.
 
 **AX12 v0.6.3:** [Keep BLE through temporary Android overlays](docs/AX12-OVERLAY-CONNECTION.md). Disarm/rearm rules retained; no Stick update.
 

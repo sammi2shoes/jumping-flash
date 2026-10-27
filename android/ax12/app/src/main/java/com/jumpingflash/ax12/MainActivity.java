@@ -292,21 +292,28 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private boolean directionTest() {
-    return (capabilities & 64) != 0;
+    return (capabilities & (64 | 128)) != 0;
+  }
+
+  private boolean dualPosition() {
+    return (capabilities & 128) != 0;
   }
 
   private boolean benchMode() {
-    return (capabilities & (32 | 64)) != 0;
+    return (capabilities & (32 | 64 | 128)) != 0;
   }
 
   private int readyMask() {
-    return directionTest() ? 1 : 3;
+    return directionTest() && !dualPosition() ? 1 : 3;
   }
 
   private boolean maintenancePending = false, maintenanceCancelPending = false;
+  private String commissioningEvidence = "No commissioning telemetry received";
+  private int commissioningFlags = -1;
   private TextView connectionHelp;
 
   private String selectionName() {
+    if (dualPosition()) return "BOTH MOTORS • FIXED TRAVEL";
     return radioState.sc < 0
         ? "Waiting"
         : new String[] {"RIGHT • ID 1", "LEFT • ID 2", "BOTH MOTORS"}[radioState.sc];
@@ -491,18 +498,28 @@ public final class MainActivity extends Activity implements InputManager.InputDe
 
   private void operatorControls() {
     if (directionTest()) {
-      body.addView(text("UNLOADED DIRECTION TEST", 26));
+      body.addView(text(dualPosition() ? "TWO-LEG POSITION BENCH" : "UNLOADED DIRECTION TEST", 26));
       LinearLayout test = card();
       test.addView(text("ID 1 RIGHT / ID 2 LEFT", 21));
       test.addView(
           text(
-              "SC low: RIGHT only • middle: LEFT only • high: BOTH\n"
-                  + "SB: DISARMED / motor enable\n"
-                  + "Elevator: choose spin direction; neutral commands zero speed.\n"
-                  + "1 A / up to 1 rad/s. Each run stops near 80° measured rotation or 2.5 seconds"
-                  + " after first motion command. Cycle SB off before another run.\n"
-                  + "No zero, homing, calibration or position hold. Stick B is unused. Keep both"
-                  + " outputs free of mechanisms and springs.",
+              dualPosition()
+                  ? "Both motors move together; SC changes require rearming.\n"
+                      + "Run BOTH watchdog checks, then place BOTH outputs at the retracted"
+                      + " pose.\n"
+                      + "Release then hold Stick B for 2 seconds to capture independent zeros.\n"
+                      + "SB arms/disarms both. Elevator extends/retracts; neutral HOLDS.\n"
+                      + "Fixed 0–80° / 1 A / 1 rad/s. No jump, gait or spinner.\n"
+                      + "No recapture during this boot. Invalid reference requires restart and"
+                      + " manual setup.\n"
+                      + "Bare-output bench first; no springs."
+                  : "SC low: RIGHT only • middle: LEFT only • high: BOTH\n"
+                      + "SB: DISARMED / motor enable\n"
+                      + "Elevator: choose spin direction; neutral commands zero speed.\n"
+                      + "1 A / up to 1 rad/s. Each run stops near 80° measured rotation or 2.5"
+                      + " seconds after first motion command. Cycle SB off before another run.\n"
+                      + "No zero, homing, calibration or position hold. Stick B is unused. Keep"
+                      + " both outputs free of mechanisms and springs.",
               16));
       body.addView(test);
       return;
@@ -1029,7 +1046,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       selectNativeInputs();
     } else detectInput();
     showTab(0);
-    log("AX12 app 0.6.3. Named RC profile; robot-side spinner/jump outputs not implemented.");
+    log("AX12 app 0.7.0. Named RC profile; robot-side spinner/jump outputs not implemented.");
     handler.post(pump);
   }
 
@@ -1651,7 +1668,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     body.addView(button("Live input monitor • gimbals, dials & switches", this::inputMonitorPage));
     if (directionTest()) {
       LinearLayout checks = card();
-      checks.addView(text("TWO-MOTOR DIRECTION TEST", 20));
+      checks.addView(
+          text(dualPosition() ? "TWO-LEG POSITION BENCH" : "TWO-MOTOR DIRECTION TEST", 20));
       checks.addView(
           text(
               "After powering both motors: keep SB DISARMED and center gimbals. This check briefly"
@@ -2126,7 +2144,24 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     rightDeg = Protocol.s16(b, 10) / 100.f;
     volts = Protocol.u16(b, 12) / 1000.f;
     lastFaults = b[14] & 255;
-    capabilities = b[15] & 127;
+    capabilities = b[15] & 255;
+    if (directionTest() && (robotFlags & (1 | 2 | 8 | 32 | 64)) != commissioningFlags) {
+      commissioningFlags = robotFlags & (1 | 2 | 8 | 32 | 64);
+      commissioningEvidence =
+          "t="
+              + telemetryAt
+              + " capability="
+              + capabilities
+              + " flags=0x"
+              + Integer.toHexString(robotFlags)
+              + " watchdog="
+              + ((robotFlags & 32) != 0
+                  ? "PENDING"
+                  : (robotFlags & 1) != 0 ? "BOTH QUALIFIED" : "UNCONFIRMED")
+              + " reference="
+              + ((robotFlags & 2) != 0 ? "VALID" : "NOT VALID / NOT USED");
+      log(commissioningEvidence);
+    }
     if (armedRequest
         && ((b[7] & 255) != mode
             || (!benchMode() && (capabilities & (1 << mode)) == 0)
@@ -2406,14 +2441,18 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     }
     if (missionTitle != null)
       missionTitle.setText(
-          directionTest() ? "TWO MOTORS / DIRECTION TEST" : "SINGLE LEG / FLIGHT DECK");
+          dualPosition()
+              ? "TWO LEGS / POSITION HOLD"
+              : directionTest() ? "TWO MOTORS / DIRECTION TEST" : "SINGLE LEG / FLIGHT DECK");
     if (driveHint != null)
       driveHint.setText(
-          directionTest()
-              ? "ELEVATOR  Spin direction    •    NEUTRAL  Zero speed    •    SC  Right / left /"
-                  + " both    •    SB  Enable / disable"
-              : "ELEVATOR  Move the leg     •     NEUTRAL  Hold position     •     SB  Disarm /"
-                  + " arm");
+          dualPosition()
+              ? "ELEVATOR  Extend / retract BOTH    •    NEUTRAL  Hold    •    SB  Enable / disable"
+              : directionTest()
+                  ? "ELEVATOR  Spin direction    •    NEUTRAL  Zero speed    •    SC  Right / left"
+                      + " / both    •    SB  Enable / disable"
+                  : "ELEVATOR  Move the leg     •     NEUTRAL  Hold position     •     SB  Disarm /"
+                      + " arm");
     if (directionTest() && mission != null) {
       boolean live = freshTelemetry();
       boolean checkFailed = live && (robotFlags & 64) != 0;
@@ -2427,13 +2466,27 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                       ? running ? "WATCHDOG CHECK" : "CHECK WATCHDOGS"
                       : running
                           ? armedRequest ? "MOTORS ENABLED" : "STOPPING"
-                          : "DIRECTION TEST READY");
+                          : dualPosition()
+                              ? (robotFlags & 2) != 0
+                                  ? "POSITION CONTROL READY"
+                                  : "REFERENCE REQUIRED"
+                              : "DIRECTION TEST READY");
       missionDetails.setText(
           "SELECTED  "
               + selectionName()
+              + "\nWATCHDOGS  "
+              + (!live
+                  ? "UNCONFIRMED"
+                  : checkFailed
+                      ? "NOT VERIFIED / RETRY"
+                      : pending
+                          ? "CHECK REQUIRED"
+                          : (robotFlags & 1) != 0 ? "BOTH PASS" : "UNCONFIRMED")
               + "\nINPUTS  "
               + (liveInputFresh() ? "Live" : "Waiting")
-              + "\nZERO  Not used for this test"
+              + (dualPosition()
+                  ? "\nREFERENCE  " + ((robotFlags & 2) != 0 ? "VALID" : "REQUIRED / INVALID")
+                  : "\nZERO  Not used for this test")
               + (live
                   ? String.format(Locale.US, "\nTRAVEL  R %+.1f° / L %+.1f°", rightDeg, leftDeg)
                   : "\nTRAVEL  —")
@@ -2446,17 +2499,28 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                   ? "Stop requested for both motors; inspect CAN and both power supplies."
                   : pending
                       ? "Keep SB DISARMED. Pit Tools → Check BOTH motor watchdogs."
-                      : "SC selects right / left / both.\n"
-                          + "Elevator spins; neutral commands zero speed.\n"
-                          + "Run guard ~80° / 2.5s. Cycle SB off to rearm.\n"
-                          + "UNLOADED OUTPUTS ONLY — no leg mechanisms.");
+                      : dualPosition()
+                          ? ((robotFlags & 2) != 0
+                              ? "BOTH fixed 0–80°. Elevator moves; neutral holds.\n"
+                                  + "1 A / 1 rad/s. SB OFF disables; deliberate rearm required."
+                              : "SB DISARMED. Place BOTH at retracted pose.\n"
+                                  + "Release then hold Stick B 2s. Invalid zero: restart first.")
+                          : "SC selects right / left / both.\n"
+                              + "Elevator spins; neutral commands zero speed.\n"
+                              + "Run guard ~80° / 2.5s. Cycle SB off to rearm.\n"
+                              + "UNLOADED OUTPUTS ONLY — no leg mechanisms.");
     }
     if (directionTest() && connectionHelp != null)
       connectionHelp.setText(
-          "DIRECTION TEST • ID1 right / ID2 left\n"
-              + "Keep both outputs unloaded. Pit Tools → Check BOTH motor watchdogs, with SB"
-              + " DISARMED and centered gimbals. Then SC selects motor(s) and elevator selects spin"
-              + " direction. No zero-setting step.");
+          dualPosition()
+              ? "DUAL POSITION • ID1 right / ID2 left\n"
+                  + "SB DISARMED; check BOTH watchdogs. Place BOTH at retracted pose; release"
+                  + " then hold Stick B 2s. Both zeros stay fixed until restart. Elevator moves"
+                  + " both; neutral holds. Bare outputs first."
+              : "DIRECTION TEST • ID1 right / ID2 left\n"
+                  + "Keep both outputs unloaded. Pit Tools → Check BOTH motor watchdogs, with SB"
+                  + " DISARMED and centered gimbals. Then SC selects motor(s) and elevator"
+                  + " selects spin direction. No zero-setting step.");
     if (tab == 1 && rawView == null && radioInfo != null)
       radioInfo.setText(
           "Throttle "
@@ -2629,7 +2693,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
         if (out == null) throw new IOException("No output stream");
         String header =
-            "Jumping Flash AX12 0.6.3\nNamed profile "
+            "Jumping Flash AX12 0.7.0\nNamed profile "
                 + radioMappingText()
                 + "\nDevice "
                 + deviceName
@@ -2645,6 +2709,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                 + Build.VERSION.RELEASE
                 + " / "
                 + Build.MODEL
+                + "\nLAST COMMISSIONING TELEMETRY (historical, not current freshness): "
+                + commissioningEvidence
                 + "\nMapping forward="
                 + forwardAxis
                 + " turn="

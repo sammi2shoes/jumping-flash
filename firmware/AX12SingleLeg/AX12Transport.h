@@ -87,6 +87,18 @@ class AX12Transport : public BLEServerCallbacks, public BLECharacteristicCallbac
     jf::put16(b+12,std::isfinite(volts)?uint16_t(fminf(65535,fmaxf(0,volts*1000))):0);
     b[15]=64;jf::put16(b+16,s.session);jf::put16(b+18,jf::crc(b,18));status->setValue(b,20);status->notify();
   }
+  // Unloaded direction-test capability64: bit5=watchdog checks pending. No reference is used.
+  // Byte12/13 is the lower of the two independently measured battery voltages.
+  void telemetryDual(bool ready,bool referenced,bool armed,bool fault,float left,float right,float volts,bool watchdogPending,bool watchdogFailed) {
+    auto s=snapshot();
+    if(!s.link || !s.have || uint32_t(millis()-notifyAt)<40) return;
+    notifyAt=millis();uint8_t b[20]={'J','F',2,0x81};
+    jf::put16(b+4,telemetrySeq++);
+    b[6]=(referenced?2:0)|(ready?1:0)|(armed?4:0)|(fault?8:0)|(watchdogPending?32:0)|(watchdogFailed?64:0);
+    b[7]=s.style;jf::put16(b+8,std::isfinite(left)?int16_t(lroundf(left*100)):0);jf::put16(b+10,std::isfinite(right)?int16_t(lroundf(right*100)):0);
+    jf::put16(b+12,std::isfinite(volts)?uint16_t(fminf(65535,fmaxf(0,volts*1000))):0);
+    b[15]=128;jf::put16(b+16,s.session);jf::put16(b+18,jf::crc(b,18));status->setValue(b,20);status->notify();
+  }
 
 } ax12;
 

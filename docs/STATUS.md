@@ -1,8 +1,12 @@
 # Current project status
 
+## Two-leg fixed position bench — APK v0.7.0 / AX12DualPosition v0.1
+
+[Downloads, flashing and reference procedure](AX12-DUAL-POSITION.md). Both mirrored RS05 motors use position mode5, fixed independent RAM origins,0–80° target clamps,1A/1rad/s and neutral active hold. Both watchdogs must qualify before physical Stick B can declare both retracted poses; both references are required before either motor enables. Both measured targets are preloaded before enabling either. Ordinary confirmed stops preserve offsets; uncertainty invalidates trust and blocks recapture until restart. No gait/jump/spinner output. User currently has bare outputs. Compiled firmware, host motor simulation, Android build/lint and70 tests pass; new dual position hardware acceptance is pending. APK exports now retain a historical commissioning flag summary.
+
 ## Temporary-overlay BLE retention — APK v0.6.3
 
-[Change and hardware check](AX12-OVERLAY-CONNECTION.md): temporary Activity pause disarms but retains GATT; full stop still disconnects. Native input pause/resume and deliberate rearm are retained. Physical overlay/USB acceptance pending. The user confirms both outputs remain bare, correct two-motor movement and DIRECTION TEST READY (both watchdogs qualified through the firmware gate).
+[Change and hardware check](AX12-OVERLAY-CONNECTION.md): temporary Activity pause disarms but retains GATT; full stop still disconnects. Native input pause/resume and deliberate rearm are retained. The user reported the interruption fix worked on the AX12; this is a reported bench check, not sustained reliability certification. The user confirms both outputs remain bare, correct two-motor movement and DIRECTION TEST READY (both watchdogs qualified through the firmware gate).
 
 ## Cold-start discovery probe — APK v0.6.2
 
