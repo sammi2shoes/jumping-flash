@@ -78,6 +78,25 @@ public class ActivityTest {
   }
 
   @Test
+  public void temporaryPauseRetainsBleButFullStopClosesIt() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity a = c.get();
+      BleLink link = (BleLink) get(a, "ble");
+      link.ready = true; // Model an established link; no radio hardware in this test.
+      set(a, "armedRequest", true);
+      c.pause();
+      assertTrue(link.ready);
+      assertFalse((Boolean) get(a, "armedRequest"));
+      c.resume();
+      assertTrue(link.ready);
+      assertFalse((Boolean) get(a, "armedRequest"));
+      c.pause().stop();
+      assertFalse(link.ready);
+    }
+  }
+
+  @Test
   public void focusLossDisarms() throws Exception {
     try (ActivityController<MainActivity> c =
         Robolectric.buildActivity(MainActivity.class).setup()) {

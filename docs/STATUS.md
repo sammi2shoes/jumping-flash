@@ -1,5 +1,9 @@
 # Current project status
 
+## Temporary-overlay BLE retention — APK v0.6.3
+
+[Change and hardware check](AX12-OVERLAY-CONNECTION.md): temporary Activity pause disarms but retains GATT; full stop still disconnects. Native input pause/resume and deliberate rearm are retained. Physical overlay/USB acceptance pending. The user confirms both outputs remain bare, correct two-motor movement and DIRECTION TEST READY (both watchdogs qualified through the firmware gate).
+
 ## Cold-start discovery probe — APK v0.6.2
 
 The v0.6.1 cold-boot log verified921600/raw UART setup but received zero bytes. v0.6.2 adds at most three fixed stock link-discovery packets before any accepted control report, plus probe/RX diagnostic export. No unknown model/RF configuration traffic or motor behavior changes. [Evidence, scope and cold-boot test](AX12-COLD-START-PROBE.md). Build/lint and67 Android tests pass. The user reported live inputs immediately on the first v0.6.2 cold boot, then passed all three requested repeat cold-boot checks without opening RadioMaster. Cold-start input recovery is bench-confirmed across these four runs; interruption recovery and sustained competition reliability are not established.

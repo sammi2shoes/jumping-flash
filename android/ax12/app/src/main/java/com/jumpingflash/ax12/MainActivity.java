@@ -1029,7 +1029,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       selectNativeInputs();
     } else detectInput();
     showTab(0);
-    log("AX12 app 0.6.2. Named RC profile; robot-side spinner/jump outputs not implemented.");
+    log("AX12 app 0.6.3. Named RC profile; robot-side spinner/jump outputs not implemented.");
     handler.post(pump);
   }
 
@@ -2526,8 +2526,15 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     disarm("App left foreground");
     sendFrame();
     keys.clear();
-    ble.pause();
+    // Temporary system overlays can pause us without hiding the activity.
+    // Disarm above, but retain GATT until the activity actually becomes invisible.
     super.onPause();
+  }
+
+  @Override
+  protected void onStop() {
+    ble.pause();
+    super.onStop();
   }
 
   @Override
@@ -2622,7 +2629,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
         if (out == null) throw new IOException("No output stream");
         String header =
-            "Jumping Flash AX12 0.6.2\nNamed profile "
+            "Jumping Flash AX12 0.6.3\nNamed profile "
                 + radioMappingText()
                 + "\nDevice "
                 + deviceName

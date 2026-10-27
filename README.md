@@ -2,6 +2,8 @@
 
 Arduino C++ development for an operator-controlled, 3 lb NHRL robot with a spring-foot four-bar leg mechanism. The actual controller is **M5StickC Plus2**, with an M5 MiniCAN unit and **RobStride 05 CAN2.0 firmware0.5.0.14**. One leg motor is available now; two are planned. The spinner ESC is AM32, 100 A, with PWM/DShot undecided.
 
+**AX12 v0.6.3:** [Keep BLE through temporary Android overlays](docs/AX12-OVERLAY-CONNECTION.md). Disarm/rearm rules retained; no Stick update.
+
 **AX12 v0.6.2:** [Cold-start discovery probe and test instructions](docs/AX12-COLD-START-PROBE.md). No Stick reflash. Hardware startup validation pending.
 
 **AX12 v0.6.1:** [Independent serial setup and live input monitor](docs/AX12-INPUT-STARTUP.md).
