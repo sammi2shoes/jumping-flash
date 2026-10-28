@@ -984,6 +984,30 @@ public class ActivityTest {
   }
 
   @Test
+  public void dualFlightDeckShowsAllThreeScMixNames() throws Exception {
+    try (ActivityController<MainActivity> c =
+        Robolectric.buildActivity(MainActivity.class).setup()) {
+      MainActivity a = c.get();
+      ((BleLink) get(a, "ble")).ready = true;
+      org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(1));
+      set(a, "capabilities", 128);
+      set(a, "robotFlags", 3);
+      set(a, "telemetryAt", android.os.SystemClock.elapsedRealtime());
+      Method render = MainActivity.class.getDeclaredMethod("render");
+      render.setAccessible(true);
+      for (int mix = 0; mix < 3; mix++) {
+        set(a, "mode", mix);
+        render.invoke(a);
+        assertTrue(
+            ((android.widget.TextView) get(a, "missionDetails"))
+                .getText()
+                .toString()
+                .contains(RadioProfile.LEG_MIX_NAMES[mix]));
+      }
+    }
+  }
+
+  @Test
   public void inputMonitorShowsLiveSourcesAndClearsThemWhenStale() throws Exception {
     try (ActivityController<MainActivity> c =
         Robolectric.buildActivity(MainActivity.class).setup()) {

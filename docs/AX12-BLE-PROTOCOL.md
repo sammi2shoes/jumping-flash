@@ -77,3 +77,6 @@ Dual-position v0.3 adds telemetry flag bit7 (0x80): saved references suspended p
 
 
 Dual-position v0.3 also opts in to maintenance command byte15=3: an explicit manual retracted-reference declaration, with flags0, SB0 and zero axes/actuator fields. It never enables or resets the encoder. Only disabled/configured, uncaptured, fresh/centered input permits the request; both stationary checks must pass before either offset commits. Receiver sessions/sequence/CRC still apply; disconnect/disarm clears pending requests. Older/non-opted-in receivers reject command3. App success requires reference-valid telemetry. Both APK v0.7.2 and Stick v0.3 are required for this UI feature.
+
+
+Dual-position v0.4 interprets existing style byte7 index0/1/2 as SC side-assist/differential/selected-leg mixing, with unchanged telemetry echo and capability128. This bench interpretation does not implement future gait styles or affect other firmware's style contract. A changed SC still disarms and demands a new off→arm cycle. [Mix formulas and matched builds](AX12-LEG-MIXES.md).

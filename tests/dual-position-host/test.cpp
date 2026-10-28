@@ -139,5 +139,24 @@ int main(){
  reset();ax12.rx.sb=1;ax12.rx.referenceRequested=true;tick(150);assert(!referenceCaptured);
  reset();qualify();reference();enable();ax12.rx.referenceRequested=true;tick(100);assert(referenceValid&&stage==DIR_ACTIVE); // ignored while armed
  reset();off();referenceMoveAt=millis()+50;ax12.rx.referenceRequested=true;tick(150);assert(!referenceCaptured&&!referenceValid&&sim[0].mode==0&&sim[1].mode==0);
+ // Aileron left extends LEFT only, right extends RIGHT only; elevator still moves both.
+ reset();qualify();reference();enable();r=sim[0].pos;l=sim[1].pos;ax12.rx.turn=-1000;tick(500);assert(fabsf(sim[0].pos-r)<.0005f&&sim[1].pos>l+.3f);
+ ax12.rx.turn=0;tick(150);ax12.rx.turn=1000;r=sim[0].pos;l=sim[1].pos;tick(500);assert(sim[0].pos<r-.3f&&fabsf(sim[1].pos-l)<.0005f);
+ ax12.rx.turn=0;ax12.rx.forward=0;tick(200);r=sim[0].pos;l=sim[1].pos;tick(500);assert(fabsf(sim[0].pos-r)<.0005f&&fabsf(sim[1].pos-l)<.0005f);
+ assert(legRate(0,1000,1000)==1.f&&legRate(1,1000,-1000)==1.f);
+ assert(legRate(0,-1000,1000)==0.f&&legRate(1,-1000,1000)==-1.f);
+ assert(legRate(0,0,80)==0.f&&legRate(1,0,-80)==0.f);
+ ax12.rx.turn=1000;tick(2200);assert(fabsf(travel(0)-TRAVEL)<.002f&&travel(1)<TRAVEL-.2f);
+ // SC middle: differential from mid-travel; left aileron extends L and retracts R.
+ reset();qualify();reference();enable();ax12.rx.forward=1000;tick(650);ax12.rx.forward=0;tick(150);off();tick(100);ax12.rx.style=1;enable();
+ r=travel(0);l=travel(1);ax12.rx.turn=-1000;tick(350);assert(travel(0)<r-.2f&&travel(1)>l+.2f);
+ savedR=legs[0].origin;savedL=legs[1].origin;ax12.rx.style=2;tick(100);assert(stage==DIR_DISABLED&&referenceValid&&legs[0].origin==savedR&&legs[1].origin==savedL);
+ // SC high: aileron selects side, elevator selects direction; aileron alone holds both.
+ off();enable();ax12.rx.turn=-1000;ax12.rx.forward=-500;r=travel(0);l=travel(1);tick(350);assert(fabsf(travel(0)-r)<.0005f&&travel(1)<l-.1f);
+ ax12.rx.forward=0;tick(150);r=travel(0);l=travel(1);ax12.rx.turn=1000;tick(300);assert(fabsf(travel(0)-r)<.0005f&&fabsf(travel(1)-l)<.0005f);
+ ax12.rx.forward=500;tick(350);assert(travel(0)>r+.1f&&fabsf(travel(1)-l)<.0005f);
+ assert(legRate(0,-1000,1000,1)==0.f&&legRate(1,-1000,1000,1)==-1.f);
+ assert(legRate(0,1000,-251,2)==0.f&&legRate(1,1000,-251,2)==1.f);
+ assert(legRate(0,1000,-250,2)==1.f&&legRate(1,1000,-250,2)==1.f);
  puts("PASS: automatic watchdog config without enable, bounded READ-only retries, active continuity through dropped replies, verified reference restoration after communication outage without re-enable, hard reset/settings/encoder faults remain blocked, mirrored limits/hold, explicit A/B failure gate and no auto-rearm. Simulated hardware only.");
 }

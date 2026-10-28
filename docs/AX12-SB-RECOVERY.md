@@ -1,5 +1,7 @@
 # Rapid SB switching / reference preservation — v0.3 + APK v0.7.2
 
+[v0.4 / APK v0.7.3](AX12-LEG-MIXES.md) adds three SC-selectable single-stick leg mixes while retaining these reference/recovery changes.
+
 [APK v0.7.2](../releases/JumpingFlash-AX12-v0.7.2.apk) · [Stick v0.3 ZIP](../releases/AX12DualPosition-v0.3.zip) · [app-only binary](../releases/AX12DualPosition-v0.3-app.bin)
 
 ## Evidence

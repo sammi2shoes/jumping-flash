@@ -2,6 +2,8 @@
 
 Arduino C++ development for an operator-controlled, 3 lb NHRL robot with a spring-foot four-bar leg mechanism. The actual controller is **M5StickC Plus2**, with an M5 MiniCAN unit and **RobStride 05 CAN2.0 firmware0.5.0.14**. Two RS05 leg motors are available: right ID1 and mirrored left ID2. The spinner ESC is AM32, 100 A, with PWM/DShot undecided.
 
+**SC leg mixes:** [APK v0.7.3 + Stick v0.4](docs/AX12-LEG-MIXES.md): single-stick side assist, differential and selected-leg control. App zeros and existing limits/recovery retained.
+
 **Rapid-SB recovery fix:** [APK v0.7.2 + Stick v0.3](docs/AX12-SB-RECOVERY.md): app-based zeros, stable arm/immediate disarm, confirmed readbacks and conditional reference preservation. Stick USB port: **COM20**. Hardware acceptance pending.
 
 **Automatic CAN recovery:** [APK v0.7.1 + Stick v0.2](docs/AX12-CAN-RECOVERY.md): background watchdog setup, brief read retries and validated reference recovery. Hardware acceptance pending.

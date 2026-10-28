@@ -81,6 +81,30 @@ public final class RadioProfile {
     return v < .33f ? 0 : v > .67f ? 2 : 1;
   }
 
+  public static final String[] LEG_MIX_NAMES = {"Side assist", "Differential", "Select a leg"};
+
+  /** Left/right normalized position rates for the dual-leg bench, not positions. */
+  public static float[] legBenchMix(float elevator, float aileron) {
+    return legBenchMix(elevator, aileron, 0);
+  }
+
+  public static float[] legBenchMix(float elevator, float aileron, int mix) {
+    float e = Math.abs(elevator) <= .08f ? 0 : elevator,
+        a = Math.abs(aileron) <= .08f ? 0 : aileron;
+    float l, r;
+    if (mix == 1) {
+      l = e - a;
+      r = e + a;
+    } else if (mix == 2) {
+      l = a > .25f ? 0 : e;
+      r = a < -.25f ? 0 : e;
+    } else {
+      l = e + Math.max(0, -a);
+      r = e + Math.max(0, a);
+    }
+    return new float[] {Math.max(-1, Math.min(1, l)), Math.max(-1, Math.min(1, r))};
+  }
+
   public static float[] mixPreview(float forward, float turn) {
     float l = forward + turn,
         r = forward - turn,

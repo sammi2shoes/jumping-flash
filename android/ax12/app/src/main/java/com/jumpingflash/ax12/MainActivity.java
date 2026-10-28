@@ -316,7 +316,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   private TextView connectionHelp;
 
   private String selectionName() {
-    if (dualPosition()) return "BOTH MOTORS • FIXED TRAVEL";
+    if (dualPosition()) return "BOTH • " + RadioProfile.LEG_MIX_NAMES[mode];
     return radioState.sc < 0
         ? "Waiting"
         : new String[] {"RIGHT • ID 1", "LEFT • ID 2", "BOTH MOTORS"}[radioState.sc];
@@ -579,13 +579,14 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       test.addView(
           text(
               dualPosition()
-                  ? "Both motors move together; SC changes require rearming.\n"
+                  ? "SC LOW: Side assist. MID: Differential. HIGH: Select a leg. SC changes"
+                      + " disarm.\n"
                       + "Watchdogs configure automatically; place BOTH outputs at the retracted"
                       + " pose.\n"
                       + "Use Set both retracted zeros on Flight Deck; confirm both physical"
                       + " poses.\n"
-                      + "SB arms after 200 ms stable; disarm is immediate. Elevator moves both;"
-                      + " neutral HOLDS.\n"
+                      + "SB arms after 200 ms stable; disarm is immediate. Elevator/aileron use"
+                      + " the selected mix; neutral HOLDS.\n"
                       + "Fixed 0–80° / 1 A / 1 rad/s. No jump, gait or spinner.\n"
                       + "No recapture during this boot. Invalid reference requires restart and"
                       + " manual setup.\n"
@@ -599,6 +600,17 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                       + " both outputs free of mechanisms and springs.",
               16));
       body.addView(test);
+      if (dualPosition())
+        body.addView(
+            text(
+                "SC LOW — SIDE ASSIST: elevator both; aileron extends its side.\n"
+                    + "SC MID — DIFFERENTIAL: elevator both; aileron extends one and retracts the"
+                    + " other.\n"
+                    + "SC HIGH — SELECT A LEG: aileron selects left/right; elevator sets"
+                    + " extension/retraction. Centered aileron selects both.\n"
+                    + "Switch SC only with SB OFF and centered controls; arm deliberately"
+                    + " afterward.",
+                16));
       return;
     }
     body.addView(text("YOUR CONTROLLER", 24));
@@ -1010,7 +1022,12 @@ public final class MainActivity extends Activity implements InputManager.InputDe
 
   private void renderRadio() {
     String sb = radioState.sb < 0 ? "UNMAPPED / UNKNOWN" : RadioProfile.ARM_NAMES[radioState.sb],
-        sc = radioState.sc < 0 ? "UNMAPPED / UNKNOWN" : RadioProfile.STYLE_NAMES[radioState.sc];
+        sc =
+            radioState.sc < 0
+                ? "UNMAPPED / UNKNOWN"
+                : (dualPosition()
+                    ? RadioProfile.LEG_MIX_NAMES[radioState.sc]
+                    : RadioProfile.STYLE_NAMES[radioState.sc]);
     if (modeLabel != null)
       modeLabel.setText(
           "SB: "
@@ -1025,7 +1042,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
               + (freshTelemetry() && (robotFlags & 16) != 0
                   ? "robot reports armed"
                   : "disabled / unconfirmed"));
-    float[] mix = RadioProfile.mixPreview(forward(), turn());
+    float[] mix =
+        dualPosition()
+            ? RadioProfile.legBenchMix(forward(), turn(), mode)
+            : RadioProfile.mixPreview(forward(), turn());
     String description =
         String.format(
             Locale.US,
@@ -1123,7 +1143,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       selectNativeInputs();
     } else detectInput();
     showTab(0);
-    log("AX12 app 0.7.2. Named RC profile; robot-side spinner/jump outputs not implemented.");
+    log("AX12 app 0.7.3. Named RC profile; robot-side spinner/jump outputs not implemented.");
     handler.post(pump);
   }
 
@@ -2574,7 +2594,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     if (driveHint != null)
       driveHint.setText(
           dualPosition()
-              ? "ELEVATOR  Extend / retract BOTH    •    NEUTRAL  Hold    •    SB  Enable / disable"
+              ? "CH1 / CH2  Selected leg mix    •    SC  Choose mix    •    NEUTRAL  Hold"
               : directionTest()
                   ? "ELEVATOR  Spin direction    •    NEUTRAL  Zero speed    •    SC  Right / left"
                       + " / both    •    SB  Enable / disable"
@@ -2606,6 +2626,18 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       missionDetails.setText(
           "SELECTED  "
               + selectionName()
+              + (dualPosition()
+                  ? "\nMIX  SC "
+                      + new String[] {"LOW • ", "MID • ", "HIGH • "}[mode]
+                      + RadioProfile.LEG_MIX_NAMES[mode]
+                  : "")
+              + (dualPosition() && liveInputFresh()
+                  ? String.format(
+                      Locale.US,
+                      "\nINPUT PREVIEW  L %+.0f%% / R %+.0f%%",
+                      RadioProfile.legBenchMix(forward(), turn(), mode)[0] * 100,
+                      RadioProfile.legBenchMix(forward(), turn(), mode)[1] * 100)
+                  : "")
               + "\nWATCHDOGS  "
               + (!live
                   ? "UNCONFIRMED"
@@ -2645,11 +2677,11 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                               : "Keep SB DISARMED. Pit Tools → Check BOTH motor watchdogs."
                           : dualPosition()
                               ? ((robotFlags & 2) != 0
-                                  ? "BOTH fixed 0–80°. Elevator moves; neutral holds.\n"
+                                  ? "Fixed 0–80°. SC chooses CH1/CH2 mix. Neutral holds.\n"
                                       + "1 A / 1 rad/s. SB OFF disables; deliberate rearm required."
                                   : "SB DISARMED. Place BOTH at retracted pose.\n"
-                                        + "Use Set both retracted zeros on Flight Deck."
-                                        + " Hard-invalid zero: restart first.")
+                                      + "Use Set both retracted zeros on Flight Deck."
+                                      + " Hard-invalid zero: restart first.")
                               : "SC selects right / left / both.\n"
                                   + "Elevator spins; neutral commands zero speed.\n"
                                   + "Run guard ~80° / 2.5s. Cycle SB off to rearm.\n"
@@ -2661,7 +2693,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
               ? "DUAL POSITION • ID1 right / ID2 left\n"
                   + "Watchdogs automatic. SB DISARMED; place BOTH at retracted pose; use Set both"
                   + " retracted zeros on Flight Deck. Both zeros stay fixed until restart."
-                  + " Elevator moves both; neutral holds. Bare outputs first."
+                  + " Elevator/aileron use the selected mix; neutral holds. Bare outputs first."
               : "DIRECTION TEST • ID1 right / ID2 left\n"
                   + "Keep both outputs unloaded. Pit Tools → Check BOTH motor watchdogs, with SB"
                   + " DISARMED and centered gimbals. Then SC selects motor(s) and elevator"
@@ -2673,7 +2705,11 @@ public final class MainActivity extends Activity implements InputManager.InputDe
               + "   •   Height dial "
               + percent(radioState.height)
               + "\nSC "
-              + (radioState.sc < 0 ? "Waiting" : RadioProfile.STYLE_NAMES[radioState.sc])
+              + (radioState.sc < 0
+                  ? "Waiting"
+                  : (dualPosition()
+                      ? RadioProfile.LEG_MIX_NAMES[radioState.sc]
+                      : RadioProfile.STYLE_NAMES[radioState.sc]))
               + "   •   SD "
               + (radioState.sd < 0 ? "Waiting" : radioState.sd == 0 ? "Low" : "High"));
     if (disconnectButton != null)
@@ -2838,7 +2874,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
         if (out == null) throw new IOException("No output stream");
         String header =
-            "Jumping Flash AX12 0.7.2\nNamed profile "
+            "Jumping Flash AX12 0.7.3\nNamed profile "
                 + radioMappingText()
                 + "\nDevice "
                 + deviceName

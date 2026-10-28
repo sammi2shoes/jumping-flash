@@ -1,5 +1,9 @@
 # Current project status
 
+## SC single-stick leg mixes — APK v0.7.3 / Stick v0.4
+
+[Downloads, formulas and first check](AX12-LEG-MIXES.md). SC low=side assist, middle=differential, high=aileron side selection with elevator direction. CH1/CH2 only for motion; SB enable unchanged. Both fixed origins/limits and neutral hold remain. SC changes while armed stop both and require SB off/on without reference recapture. App shows mix and signed L/R input preview. Firmware build, full host suites and78 Android tests pass; physical mix acceptance pending. User reported v0.3 rapid-SB behavior seemed better; this does not independently establish all recovery cases.
+
 ## Rapid SB / false reference invalidation — APK v0.7.2 / Stick v0.3
 
 [Downloads, evidence and procedure](AX12-SB-RECOVERY.md). User log9 shows ID1 write mismatch after repeated arm changes, with clean native inputs; parameter/cause is not established. Firmware now requires200ms stable arm (immediate disarm), latches disarm edges between loop services, waits for expected state acknowledgements, confirms mismatched readback without replaying writes, and treats persistent unverified writes/missing settings replies as stop-and-validate candidates rather than proof of lost encoder zero. Actual changed settings/reset/encoder/motor faults remain blocked. UI distinguishes reference-recovery pending from hard invalidity. Flight Deck can set both known retracted zeros through a guarded, stationary, all-or-nothing declaration; no Stick button is required and existing captured zeros cannot be overwritten. Compilation, host suites and75 Android tests pass; physical acceptance pending. User's Stick Windows USB port is **COM20**, to use in future flash commands/packages.

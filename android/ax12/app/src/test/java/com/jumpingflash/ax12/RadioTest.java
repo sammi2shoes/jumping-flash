@@ -179,4 +179,33 @@ public class RadioTest {
     assertEquals(0, b[6] & 4);
     assertEquals(0, b[12]);
   }
+
+  @org.junit.Test
+  public void dualLegBenchMixSelectsSideAndClampsCombinedRates() {
+    org.junit.Assert.assertArrayEquals(new float[] {1, 0}, RadioProfile.legBenchMix(0, -1), .0001f);
+    org.junit.Assert.assertArrayEquals(new float[] {0, 1}, RadioProfile.legBenchMix(0, 1), .0001f);
+    org.junit.Assert.assertArrayEquals(
+        new float[] {-1, -1}, RadioProfile.legBenchMix(-1, 0), .0001f);
+    org.junit.Assert.assertArrayEquals(new float[] {1, 1}, RadioProfile.legBenchMix(1, 1), .0001f);
+    org.junit.Assert.assertArrayEquals(
+        new float[] {-1, 0}, RadioProfile.legBenchMix(-1, 1), .0001f);
+    org.junit.Assert.assertArrayEquals(
+        new float[] {0, 0}, RadioProfile.legBenchMix(0, .08f), .0001f);
+  }
+
+  @org.junit.Test
+  public void scMixesDifferentialAndSideSelectionUseBothCh1AndCh2() {
+    org.junit.Assert.assertArrayEquals(
+        new float[] {1, -1}, RadioProfile.legBenchMix(0, -1, 1), .0001f);
+    org.junit.Assert.assertArrayEquals(
+        new float[] {0, -1}, RadioProfile.legBenchMix(-1, -1, 1), .0001f);
+    org.junit.Assert.assertArrayEquals(
+        new float[] {-.5f, 0}, RadioProfile.legBenchMix(-.5f, -1, 2), .0001f);
+    org.junit.Assert.assertArrayEquals(
+        new float[] {0, .5f}, RadioProfile.legBenchMix(.5f, 1, 2), .0001f);
+    org.junit.Assert.assertArrayEquals(
+        new float[] {.5f, .5f}, RadioProfile.legBenchMix(.5f, .25f, 2), .0001f);
+    org.junit.Assert.assertArrayEquals(
+        new float[] {0, 0}, RadioProfile.legBenchMix(0, 1, 2), .0001f);
+  }
 }

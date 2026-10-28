@@ -58,6 +58,16 @@ uint32_t bitsOf(float f){uint32_t b;memcpy(&b,&f,4);return b;}
 float floatOf(uint32_t b){float f;memcpy(&f,&b,4);return f;}
 const char* side(int i){return i==0?"RIGHT":"LEFT";}
 float travel(int i){return referenceValid?legs[i].sign*(legs[i].position-legs[i].origin):0;}
+// Index0 RIGHT, index1 LEFT. Elevator is common; aileron adds extension on its side.
+float legRate(int i,int forward,int turn,uint8_t mix=0){
+  float e=abs(forward)<=80?0:float(forward)/1000.f;
+  float a=abs(turn)<=80?0:float(turn)/1000.f;
+  float rate=0;
+  if(mix==0)rate=e+(i==0?fmaxf(0,a):fmaxf(0,-a)); // side assist
+  else if(mix==1)rate=e+(i==0?a:-a); // differential
+  else if(mix==2)rate=((a<-.25f&&i==0)||(a>.25f&&i==1))?0:e; // elevator selects direction
+  return fmaxf(-1,fminf(1,rate))*SPEED;
+}
 bool allQualified(){return legs[0].watchdog && legs[1].watchdog;}
 bool centered(){auto s=ax12.snapshot();return s.fresh(millis()) && abs(s.forward)<=20 && abs(s.turn)<=20;}
 bool inputOkay(){auto s=ax12.snapshot();return s.fresh(millis()) && s.enabled && s.style==selection && s.disarmGeneration==armedGeneration;}
@@ -332,7 +342,7 @@ void setup(){
   twai_general_config_t g=TWAI_GENERAL_CONFIG_DEFAULT(GPIO_NUM_32,GPIO_NUM_33,TWAI_MODE_NORMAL);g.rx_queue_len=64;g.tx_queue_len=0;
   twai_timing_config_t t=TWAI_TIMING_CONFIG_1MBITS();twai_filter_config_t f=TWAI_FILTER_CONFIG_ACCEPT_ALL();
   esp_err_t e=twai_driver_install(&g,&t,&f);if(e==ESP_OK)e=twai_start();driverReady=e==ESP_OK;
-  Serial.printf("AX12 DUAL POSITION v0.3 CAN=%s RIGHT=1(-) LEFT=2(+). No enable on boot.\n",esp_err_to_name(e));
+  Serial.printf("AX12 DUAL POSITION v0.4 CAN=%s RIGHT=1(-) LEFT=2(+). No enable on boot.\n",esp_err_to_name(e));
   if(driverReady){bool stopped=stopBoth();Serial.println(stopped?"Startup BOTH disabled confirmed":"Startup STOP unconfirmed. Keep BOTH motor supplies off until ready.");}
   uncertain=false;cancelled=stopRequested=false;retryAt=millis()+1500;
   Serial.println("BOTH motors always selected. Watchdog automatic; t=OPTIONAL zero-speed diagnostic SB OFF; set BOTH retracted zeros in the app (B remains a fallback). A/x=stop BOTH. BARE OUTPUT TEST FIRST.");
@@ -359,9 +369,9 @@ void loop(){
       if(uncertain||cancelled||stopRequested){loseControl("CAN transport/operator interruption during optional telemetry");return;}
     }
     if(stage==DIR_ACTIVE){
-      auto input=ax12.snapshot();float rate=abs(input.forward)<=80?0:float(input.forward)/1000.f*SPEED;
+      auto input=ax12.snapshot();
       for(int i=0;i<2;i++){
-        auto& m=legs[i];float relative=m.sign*(m.target-m.origin);
+        auto& m=legs[i];float rate=legRate(i,input.forward,input.turn,selection);float relative=m.sign*(m.target-m.origin);
         relative=fmaxf(0,fminf(TRAVEL,relative+rate*dt));m.target=m.origin+m.sign*relative;
         if(fabsf(m.target-m.position)>.15f){describe(i,TRACKING_ERROR,"position following error exceeds 0.15rad");loseControl("tracking error exceeds 0.15rad");return;}
         if(!writeChecked(i,0x7016,bitsOf(m.target))){loseControl("position target/acknowledgement lost");return;}
