@@ -1,5 +1,9 @@
 # Current project status
 
+## Mechanical repair / next-stage design
+
+The user reported that leg connections failed mechanically during SC-middle differential testing, while the motion looked promising. They are repairing the connections. Loaded performance acceptance remains inconclusive. [Next-development proposal](NEXT-DEVELOPMENT-PLAN.md) covers a no-scroll AX12 layout, separate torque/speed test profiles, measured latency reduction, local sequence programming and staged IMU sensing/feedback. This is planning only; no runtime or power limits changed.
+
 ## SC single-stick leg mixes — APK v0.7.3 / Stick v0.4
 
 [Downloads, formulas and first check](AX12-LEG-MIXES.md). SC low=side assist, middle=differential, high=aileron side selection with elevator direction. CH1/CH2 only for motion; SB enable unchanged. Both fixed origins/limits and neutral hold remain. SC changes while armed stop both and require SB off/on without reference recapture. App shows mix and signed L/R input preview. Firmware build, full host suites and78 Android tests pass; physical mix acceptance pending. User reported v0.3 rapid-SB behavior seemed better; this does not independently establish all recovery cases.
