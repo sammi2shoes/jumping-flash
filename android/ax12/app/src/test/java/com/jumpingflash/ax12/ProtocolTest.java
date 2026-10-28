@@ -75,4 +75,15 @@ public class ProtocolTest {
     assertEquals(2, b[15]);
     for (int i = 8; i <= 13; i++) assertEquals(0, b[i]);
   }
+
+  @Test
+  public void referenceCaptureIsDisarmedNeutralAndSessionBound() {
+    byte[] b = Protocol.referenceCapture(9, 123, 2);
+    assertTrue(Protocol.valid(b, 1));
+    assertEquals(3, b[15]);
+    assertEquals(0, b[6]);
+    assertEquals(0, b[14]);
+    assertEquals(123, Protocol.u16(b, 16));
+    for (int j = 8; j <= 13; j++) assertEquals(0, b[j]);
+  }
 }

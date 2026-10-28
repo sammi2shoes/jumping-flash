@@ -12,12 +12,16 @@ struct Motor{int mode=0;float pos=2.9f;std::map<uint16_t,uint32_t> reg;uint32_t 
 int simulatedBusState=TWAI_STATE_RUNNING;
 float targetReadbackOffset=0;bool rejectLeftCurrentOnArm=false;
 int dropReads=0,dropMotor=0,dropIndex=0x7019;
+int transientTargetMismatches=0;bool chatterOnEnable=false,staleStopReply=false;
+uint32_t referenceMoveAt=0;
+uint32_t delayedStateAt=0;twai_message_t delayedStateReply={};
 Motor sim[2];std::deque<twai_message_t> received;
 struct Sent{uint32_t at;int motor,type,index;uint32_t bits;};std::vector<Sent> sent;
 #include "../../firmware/AX12DualPosition/AX12DualPosition.ino"
 void advance(int t){
  for(int k=0;k<t;k++){
   ++fakeTime;
+  if(referenceMoveAt&&fakeTime>=referenceMoveAt){sim[0].pos+=.01f;referenceMoveAt=0;}
   for(auto& m:sim){
    if(m.mode==2&&!m.jammed){
      if(m.reg[0x7005]==2)m.pos+=floatOf(m.reg[0x700A])*.001f;
@@ -29,7 +33,7 @@ void advance(int t){
 }
 void feedback(int i){twai_message_t f={};f.extd=1;f.data_length_code=8;f.identifier=0x0200007e|(uint32_t(i+1)<<8)|(uint32_t(sim[i].mode)<<22);received.push_back(f);}
 int twai_get_status_info(twai_status_info_t*s){*s={};s->state=simulatedBusState;return 0;}
-int twai_receive(twai_message_t*f,int){if(received.empty())return -1;*f=received.front();received.pop_front();return 0;}
+int twai_receive(twai_message_t*f,int){if(delayedStateAt&&millis()>=delayedStateAt){received.push_back(delayedStateReply);delayedStateAt=0;}if(received.empty())return -1;*f=received.front();received.pop_front();return 0;}
 int twai_transmit(const twai_message_t*f,int){
  assert(f->extd&&f->ss==(((f->identifier>>24)&31)==17?0u:1u)&&f->data_length_code==8&&((f->identifier>>8)&255)==126);
  int type=(f->identifier>>24)&31,i=(f->identifier&255)-1,index=jf::u16(f->data);uint32_t bits;memcpy(&bits,f->data+4,4);
@@ -37,23 +41,31 @@ int twai_transmit(const twai_message_t*f,int){
  if(type==18 && index==0x7016 && referenceValid){float relative=legs[i].sign*(floatOf(bits)-legs[i].origin);assert(relative>=-.0005f&&relative<=TRAVEL+.0005f);}
 
  sent.push_back({fakeTime,i,type,index,bits});auto&m=sim[i];m.last=fakeTime;
+ int priorMode=m.mode;
  if(type==4&&!m.ignoreStop)m.mode=0;
  if(type==3){assert((m.reg[0x7005]==2||m.reg[0x7005]==5)&&m.reg[0x7018]==bitsOf(1.f));assert(stage==DIR_ARMING||stage==DIR_WATCHDOG_TEST);m.mode=2;++m.enables;}
  if(type==18){assert(index==0x7005||index==0x7018||index==0x7028||index==0x700A||index==0x7016||index==0x7017);if(index==0x700A)assert(fabsf(floatOf(bits))<=1.f);if(index==0x7018)assert(bits==bitsOf(1.f));m.reg[index]=bits;if(rejectLeftCurrentOnArm&&stage==DIR_ARMING&&i==1&&index==0x7018)m.reg[index]=bitsOf(.5f);}
  if(m.absent)return ESP_OK;
  if(type==17&&i==dropMotor&&index==dropIndex&&dropReads>0){--dropReads;return ESP_OK;}
- if(type==17){twai_message_t r={};r.extd=1;r.data_length_code=8;r.identifier=0x1100007e|(uint32_t(i+1)<<8);r.data[0]=index;r.data[1]=index>>8;uint32_t b=index==0x7019?bitsOf(m.pos):index==0x701C?bitsOf(i?23.f:24.f):m.reg[index];if(index==0x7016)b=bitsOf(floatOf(b)+targetReadbackOffset);memcpy(r.data+4,&b,4);received.push_back(r);}
- else feedback(i);
+ if(type==17){twai_message_t r={};r.extd=1;r.data_length_code=8;r.identifier=0x1100007e|(uint32_t(i+1)<<8);r.data[0]=index;r.data[1]=index>>8;uint32_t b=index==0x7019?bitsOf(m.pos):index==0x701C?bitsOf(i?23.f:24.f):m.reg[index];if(index==0x7016){b=bitsOf(floatOf(b)+targetReadbackOffset);if(transientTargetMismatches>0){--transientTargetMismatches;b=bitsOf(floatOf(b)+.01f);}}memcpy(r.data+4,&b,4);received.push_back(r);}
+ else if(type==4&&staleStopReply&&priorMode==2){
+   staleStopReply=false;feedback(i);delayedStateReply=received.back();received.pop_back();delayedStateAt=millis()+10;
+   sim[i].mode=2;feedback(i);sim[i].mode=0;
+ }else feedback(i);
+ if(type==3&&stage==DIR_ARMING&&chatterOnEnable){chatterOnEnable=false;ax12.rx.requireDisarm();ax12.rx.sb=1;ax12.rx.enabled=true;}
+
  return ESP_OK;
 }
 void tick(int ms){uint32_t end=fakeTime+ms;while(fakeTime<end){uint32_t before=fakeTime;loop();if(fakeTime==before)advance(1);}}
-void off(){ax12.rx.enabled=false;ax12.rx.sb=0;ax12.rx.forward=ax12.rx.turn=0;}
+void off(){if(ax12.rx.enabled)++ax12.rx.disarmGeneration;ax12.rx.enabled=false;ax12.rx.sb=0;ax12.rx.forward=ax12.rx.turn=0;}
 void reset(){
  simulatedBusState=TWAI_STATE_RUNNING;targetReadbackOffset=0;rejectLeftCurrentOnArm=false;fakeTime=100;interruptAt=0;sim[0]=Motor();sim[1]=Motor();received.clear();sent.clear();Serial={};M5={};ax12={};
  legs[0]=Leg(1,-1.f);legs[1]=Leg(2,1.f);stage=DIR_OFFLINE;
- watchdogFailed=false;driverReady=configured=cancelled=stopRequested=uncertain=testing=quiet=foreignTraffic=readDone=readOK=pending=testRequested=false;
+ watchdogFailed=false;driverReady=configured=cancelled=stopRequested=uncertain=testing=quiet=foreignTraffic=readDone=readOK=pending=testRequested=referenceRequested=false;
  pendingMotor=-1;pendingIndex=0;readBits=retryAt=pollAt=signatureAt=displayAt=0;selection=0;signatureLeg=0;
  referenceCaptured=referenceValid=referenceReleased=false;referenceHoldAt=0;
+ armedGeneration=armRequestAt=armRequestGeneration=0;armRequestStyle=0;armRequestPending=false;
+ transientTargetMismatches=0;chatterOnEnable=staleStopReply=false;delayedStateAt=referenceMoveAt=0;
  communicationFault=referenceRecoverable=referenceFault=false;diagnostic=0;readRetries=0;dropReads=0;dropMotor=0;dropIndex=0x7019;
  setup();assert(sim[0].enables==0&&sim[1].enables==0);
  for(auto&f:sent)assert(f.type==4);
@@ -63,7 +75,7 @@ void qualify(){off();tick(10);assert(allQualified()&&stage==DIR_DISABLED);assert
 
 
 void reference(){off();M5.BtnB.down=false;tick(100);M5.BtnB.down=true;tick(2150);M5.BtnB.down=false;tick(100);assert(referenceCaptured&&referenceValid);}
-void enable(){off();tick(100);ax12.rx.sb=1;ax12.rx.enabled=true;tick(100);assert(stage==DIR_ACTIVE);assert(sim[0].mode==2&&sim[1].mode==2);}
+void enable(){off();tick(100);ax12.rx.sb=1;ax12.rx.enabled=true;tick(350);assert(stage==DIR_ACTIVE);assert(sim[0].mode==2&&sim[1].mode==2);}
 int main(){
  reset();assert(sim[0].enables==0&&sim[1].enables==0); // automatic config NEVER energizes either motor
  qualify();ax12.rx.sb=1;ax12.rx.enabled=true;tick(100);assert(stage==DIR_DISABLED&&sim[0].mode==0&&sim[1].mode==0);
@@ -84,7 +96,7 @@ int main(){
  reset();qualify();reference();enable();ax12.rx.maintenanceStopRequested=true;tick(100);assert(stage==DIR_DISABLED&&referenceValid&&sim[0].mode==0&&sim[1].mode==0);
  reset();sim[1].honor=false;off();ax12.rx.maintenanceRequested=true;tick(10);assert(!allQualified()&&!referenceValid&&sim[0].mode==0&&sim[1].mode==0);
  reset();targetReadbackOffset=.0001f;assert(writeChecked(0,0x7016,bitsOf(sim[0].pos)));targetReadbackOffset=.002f;assert(!writeChecked(0,0x7016,bitsOf(sim[0].pos))&&uncertain);
- reset();qualify();reference();int before=sim[0].enables;rejectLeftCurrentOnArm=true;off();tick(100);ax12.rx.sb=1;ax12.rx.enabled=true;tick(200);assert(sim[0].enables==before+1);assert(sim[0].mode==0&&sim[1].mode==0&&!referenceValid);
+ reset();qualify();reference();int before=sim[0].enables;rejectLeftCurrentOnArm=true;off();tick(100);ax12.rx.sb=1;ax12.rx.enabled=true;tick(450);assert(sim[0].enables==before+1);assert(sim[0].mode==0&&sim[1].mode==0&&!referenceValid);
  reset();qualify();reference();twai_message_t boot={};boot.extd=1;boot.data_length_code=8;boot.identifier=0x000002FE;received.push_back(boot);tick(100);assert(!referenceValid&&referenceCaptured);
  reset();qualify();reference();enable();sim[1].jammed=true;ax12.rx.forward=1000;tick(500);assert(stage==DIR_DISABLED&&sim[0].mode==0&&sim[1].mode==0);assert(Serial.output.find("tracking error exceeds")!=std::string::npos);
  // A single lost reply is recovered while armed, without reconfiguration, enable, STOP or zero changes.
@@ -106,5 +118,26 @@ int main(){
  for(int sec=0;sec<180;sec++){ax12.rx.forward=sec%2? -500:500;if(sec%10==0)dropReads=1;tick(1000);assert(stage==DIR_ACTIVE&&referenceValid&&allQualified());}
  assert(readRetries==18&&sim[0].enables+sim[1].enables==enables);
  for(size_t k=boundary;k<sent.size();k++){assert(sent[k].type!=3&&sent[k].type!=4);if(sent[k].type==18)assert(sent[k].index==0x7016);}
+ // Short ON pulses never enable; OFF is not debounced.
+ reset();qualify();reference();enables=sim[0].enables+sim[1].enables;
+ for(int k=0;k<50;k++){off();tick(30);ax12.rx.sb=1;ax12.rx.enabled=true;tick(30);assert(stage==DIR_DISABLED&&referenceValid);}
+ assert(sim[0].enables+sim[1].enables==enables);off();enable();off();tick(10);assert(sim[0].mode==0&&sim[1].mode==0&&referenceValid);
+ // An OFF/ON accepted between loop services still cancels an in-progress enable.
+ reset();qualify();reference();chatterOnEnable=true;off();tick(100);ax12.rx.sb=1;ax12.rx.enabled=true;tick(350);assert(stage==DIR_DISABLED&&referenceValid&&!uncertain&&sim[0].mode==0&&sim[1].mode==0);
+ // Old RUN feedback arriving before STOP acknowledgement is drained without a false reference fault.
+ reset();qualify();reference();enable();staleStopReply=true;off();tick(100);assert(stage==DIR_DISABLED&&referenceValid&&!uncertain);
+ // One stale target read is confirmed without replaying its write or invalidating zero.
+ reset();qualify();reference();enable();transientTargetMismatches=1;tick(100);assert(stage==DIR_ACTIVE&&referenceValid&&!uncertain);assert(Serial.output.find("VERIFY RETRY")!=std::string::npos);
+ // Persistent unverified target stops, then validates recovery without overwriting reference.
+ targetReadbackOffset=.002f;tick(100);assert(!referenceValid&&referenceRecoverable&&!referenceFault);targetReadbackOffset=0;off();tick(1600);assert(referenceValid&&allQualified()&&stage==DIR_DISABLED);
+ // Missing settings replies remain communication faults, not proof of a reset.
+ reset();qualify();reference();enable();dropReads=3;dropIndex=0x7005;signatureLeg=0;signatureAt=millis()-500;tick(100);assert(referenceRecoverable&&!referenceFault);dropReads=0;off();tick(1600);assert(referenceValid&&allQualified());
+ // App request captures BOTH stationary offsets without any Stick button or motor enable.
+ reset();M5.BtnB.down=false;off();enables=sim[0].enables+sim[1].enables;sim[0].pos=3.f;sim[1].pos=-1.f;ax12.rx.referenceRequested=true;tick(150);
+ assert(referenceValid&&referenceCaptured&&legs[0].origin==3.f&&legs[1].origin==-1.f&&sim[0].enables+sim[1].enables==enables);
+ savedR=legs[0].origin;savedL=legs[1].origin;sim[0].pos-=.1f;tick(100);ax12.rx.referenceRequested=true;tick(150);assert(legs[0].origin==savedR&&legs[1].origin==savedL);
+ reset();ax12.rx.sb=1;ax12.rx.referenceRequested=true;tick(150);assert(!referenceCaptured);
+ reset();qualify();reference();enable();ax12.rx.referenceRequested=true;tick(100);assert(referenceValid&&stage==DIR_ACTIVE); // ignored while armed
+ reset();off();referenceMoveAt=millis()+50;ax12.rx.referenceRequested=true;tick(150);assert(!referenceCaptured&&!referenceValid&&sim[0].mode==0&&sim[1].mode==0);
  puts("PASS: automatic watchdog config without enable, bounded READ-only retries, active continuity through dropped replies, verified reference restoration after communication outage without re-enable, hard reset/settings/encoder faults remain blocked, mirrored limits/hold, explicit A/B failure gate and no auto-rearm. Simulated hardware only.");
 }

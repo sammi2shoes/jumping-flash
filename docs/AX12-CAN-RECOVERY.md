@@ -1,5 +1,7 @@
 # Automatic watchdog setup and bounded CAN recovery
 
+**Historical v0.2 procedure.** [v0.3 / APK v0.7.2](AX12-SB-RECOVERY.md) adds rapid-SB handling, confirmation reads and a distinct recovery-pending reference state.
+
 Matched release: **AX12DualPosition v0.2 / APK v0.7.1**. Same RS05 CAN2.0 firmware0.5.0.14, right ID1 negative extension / left ID2 positive extension. Still the1A,1rad/s, fixed0–80° position bench. No new gait, jump or spinner behavior.
 
 - [APK v0.7.1](../releases/JumpingFlash-AX12-v0.7.1.apk)
@@ -37,10 +39,10 @@ Serial also reports motor/index/retry count, reference-recovery eligibility and 
 
 ## Install and initial check
 
-Keep both motor supplies OFF while flashing. Install APK over the current app; extract the ZIP and use the Stick USB port in place of COM3:
+Keep both motor supplies OFF while flashing. Install APK over the current app; extract the ZIP and use the Stick USB port in place of COM20:
 
 ```powershell
-py -3.13 -m esptool --chip esp32 --port COM3 --baud 460800 write_flash 0x10000 AX12DualPosition-v0.2-app.bin
+py -3.13 -m esptool --chip esp32 --port COM20 --baud 460800 write_flash 0x10000 AX12DualPosition-v0.2-app.bin
 ```
 
 App-only offset0x10000, not0x0. Partition compatibility is checked against the existing SingleLeg/DirectionTest layout; do not erase NVS. Keep outputs bare for initial acceptance of this recovery release. Power motors and connect with SB off/controls centered. Automatic configuration should finish without a watchdog button. Mark both mock retracted poses, release/hold Stick B2seconds, and check POSITION CONTROL READY. Begin with small travel and neutral hold. Do not deliberately break a powered CAN connector during motion to test retries; controlled electrical fault injection and loaded acceptance remain separate work.

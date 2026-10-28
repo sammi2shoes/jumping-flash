@@ -88,6 +88,13 @@ public final class Protocol {
     return b;
   }
 
+  public static byte[] referenceCapture(int sequence, int session, int style) {
+    byte[] b = radioCommand(sequence, session, false, 0, style, 0, 0, 0, 0, false, false);
+    b[15] = 3;
+    put(b, 18, crc(b, 18));
+    return b;
+  }
+
   public static byte[] directionStop(int sequence, int session, int style, int sb) {
     byte[] b = radioCommand(sequence, session, false, sb, style, 0, 0, 0, 0, false, false);
     b[15] = 2;

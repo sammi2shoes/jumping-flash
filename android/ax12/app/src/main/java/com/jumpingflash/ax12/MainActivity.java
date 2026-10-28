@@ -308,6 +308,9 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   }
 
   private boolean maintenancePending = false, maintenanceCancelPending = false;
+  private boolean referencePending = false, referenceAwaiting = false;
+  private long referenceSentAt = 0;
+  private Button referenceButton;
   private String commissioningEvidence = "No commissioning telemetry received";
   private int commissioningFlags = -1;
   private TextView connectionHelp;
@@ -361,6 +364,48 @@ public final class MainActivity extends Activity implements InputManager.InputDe
         + (lastFaults >>> 4)
         + " "
         + (code < reasons.length ? reasons[code] : "code " + code);
+  }
+
+  private boolean referenceCaptureAllowed() {
+    return dualPosition()
+        && foreground
+        && freshTelemetry()
+        && liveInputFresh()
+        && radioState.sb == 0
+        && Math.abs(forward()) <= .02f
+        && Math.abs(turn()) <= .02f
+        && (robotFlags & 1) != 0
+        && (robotFlags & (2 | 4 | 8 | 32 | 64 | 128)) == 0
+        && lastFaults == 0;
+  }
+
+  private void requestReferenceCapture() {
+    if (!referenceCaptureAllowed()) {
+      toast(
+          "Keep SB DISARMED, center controls, and wait for both motors ready. Existing or"
+              + " recovering zeros cannot be overwritten.");
+      return;
+    }
+    disarm("App retracted reference requested; motors remain disabled");
+    referencePending = referenceAwaiting = true;
+    referenceSentAt = SystemClock.elapsedRealtime();
+    sendFrame();
+  }
+
+  private void confirmReferenceCapture() {
+    if (!referenceCaptureAllowed()) {
+      requestReferenceCapture();
+      return;
+    }
+    new AlertDialog.Builder(this)
+        .setTitle("Set BOTH retracted zeros?")
+        .setMessage(
+            "Place BOTH outputs at their known fully retracted poses and keep them still. This"
+                + " records their current positions as 0°; it does not move or home the legs."
+                + " Existing zeros cannot be overwritten during this Stick boot.")
+        .setNegativeButton("Cancel", null)
+        .setPositiveButton("Set both zeros", (d, w) -> requestReferenceCapture())
+        .show();
   }
 
   private boolean singleLeg() {
@@ -498,6 +543,9 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     status.addView(missionStatus);
     missionDetails = text("", 16);
     status.addView(missionDetails);
+    referenceButton = button("Set both retracted zeros", this::confirmReferenceCapture);
+    referenceButton.setVisibility(dualPosition() ? View.VISIBLE : View.GONE);
+    status.addView(referenceButton);
     Button connect = button("Robot connection  →", () -> showTab(2));
     paintButton(connect, Color.rgb(255, 214, 64), TEXT);
     status.addView(connect);
@@ -534,8 +582,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                   ? "Both motors move together; SC changes require rearming.\n"
                       + "Watchdogs configure automatically; place BOTH outputs at the retracted"
                       + " pose.\n"
-                      + "Release then hold Stick B for 2 seconds to capture independent zeros.\n"
-                      + "SB arms/disarms both. Elevator extends/retracts; neutral HOLDS.\n"
+                      + "Use Set both retracted zeros on Flight Deck; confirm both physical"
+                      + " poses.\n"
+                      + "SB arms after 200 ms stable; disarm is immediate. Elevator moves both;"
+                      + " neutral HOLDS.\n"
                       + "Fixed 0–80° / 1 A / 1 rad/s. No jump, gait or spinner.\n"
                       + "No recapture during this boot. Invalid reference requires restart and"
                       + " manual setup.\n"
@@ -1073,7 +1123,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       selectNativeInputs();
     } else detectInput();
     showTab(0);
-    log("AX12 app 0.7.1. Named RC profile; robot-side spinner/jump outputs not implemented.");
+    log("AX12 app 0.7.2. Named RC profile; robot-side spinner/jump outputs not implemented.");
     handler.post(pump);
   }
 
@@ -2148,6 +2198,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
   private void disarm(String why) {
     maintenancePending = false;
     maintenanceCancelPending = false;
+    referencePending = referenceAwaiting = false;
     boolean changed = armedRequest || launchPending;
     armedRequest = false;
     launchPending = false;
@@ -2178,8 +2229,13 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     volts = Protocol.u16(b, 12) / 1000.f;
     lastFaults = b[14] & 255;
     capabilities = b[15] & 255;
+    if (referenceAwaiting && dualPosition() && (robotFlags & 2) != 0) {
+      referenceAwaiting = false;
+      referencePending = false;
+      toast("Both retracted zeros captured. Center controls, then arm deliberately.");
+    }
     int commissioningKey =
-        (capabilities << 16) | (lastFaults << 8) | (robotFlags & (1 | 2 | 8 | 32 | 64));
+        (capabilities << 16) | (lastFaults << 8) | (robotFlags & (1 | 2 | 8 | 32 | 64 | 128));
     if (directionTest() && commissioningKey != commissioningFlags) {
       commissioningFlags = commissioningKey;
       commissioningEvidence =
@@ -2196,7 +2252,11 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                       ? dualPosition() ? "AUTO CONFIG VERIFIED" : "BOTH QUALIFIED"
                       : "UNCONFIRMED")
               + " reference="
-              + ((robotFlags & 2) != 0 ? "VALID" : "NOT VALID / NOT USED")
+              + ((robotFlags & 2) != 0
+                  ? "VALID"
+                  : dualPosition() && (robotFlags & 128) != 0
+                      ? "RECOVERY PENDING"
+                      : "NOT VALID / NOT USED")
               + " diagnostic="
               + motorDiagnostic();
       log(commissioningEvidence);
@@ -2212,7 +2272,9 @@ public final class MainActivity extends Activity implements InputManager.InputDe
             || (directionTest() && (robotFlags & 32) != 0)
             || (robotFlags & 8) != 0
             || lastFaults != 0)) disarm("Robot readiness/reference/fault changed");
-    if (armedRequest && (robotFlags & 4) == 0 && SystemClock.elapsedRealtime() - armAt > 500)
+    if (armedRequest
+        && (robotFlags & 4) == 0
+        && SystemClock.elapsedRealtime() - armAt > (dualPosition() ? 1000 : 500))
       disarm("Robot did not retain/confirm arm");
   }
 
@@ -2232,6 +2294,8 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     if (maintenancePending
         && (!directionTest() || radioState.sb != 0 || !sourceFresh || !freshTelemetry()))
       maintenancePending = false;
+    if (referencePending && !referenceCaptureAllowed())
+      referencePending = referenceAwaiting = false;
     if (demo || !ble.ready || ble.busy) return;
     boolean allowed =
         armedRequest
@@ -2257,11 +2321,16 @@ public final class MainActivity extends Activity implements InputManager.InputDe
             : Protocol.command(
                 sequence, session, allowed, mode, forward(), turn(), launchPending && allowed);
     if (maintenancePending) frame = Protocol.watchdogCheck(sequence, session, mode);
+    if (referencePending) frame = Protocol.referenceCapture(sequence, session, mode);
     if (maintenanceCancelPending && directionTest())
       frame = Protocol.directionStop(sequence, session, mode, radioState.sb);
     if (ble.send(frame)) {
       maintenancePending = false;
       maintenanceCancelPending = false;
+      if (referencePending) {
+        referencePending = false;
+        referenceSentAt = SystemClock.elapsedRealtime();
+      }
       if (!sourceFresh) inputStopSent = true;
       sequence = (sequence + 1) & 65535;
       txCount++;
@@ -2276,14 +2345,21 @@ public final class MainActivity extends Activity implements InputManager.InputDe
           long now = SystemClock.elapsedRealtime();
           if (foreground) {
             consumeNativeInputs();
+            if (referenceAwaiting && now - referenceSentAt > 2500) {
+              referenceAwaiting = referencePending = false;
+              toast(
+                  "Reference not accepted. Check both outputs stationary, SB off and matching Stick"
+                      + " v0.3. A previously captured invalid zero requires a known-pose restart.");
+            }
             if (inputMonitor != null && now - monitorAt >= 40) {
               updateInputMonitor(now);
               monitorAt = now;
             }
             if (armedRequest && (!freshTelemetry() || !driveEnable() || !liveInputFresh()))
               disarm("Input enable/device or telemetry lost");
-            if (armedRequest && (robotFlags & 4) == 0 && now - armAt > 500)
-              disarm("Arm confirmation timeout");
+            if (armedRequest
+                && (robotFlags & 4) == 0
+                && now - armAt > (dualPosition() ? 1000 : 500)) disarm("Arm confirmation timeout");
             if (ble.busy && now - ble.writeAt >= 150) {
               disarm("BLE write timeout");
               ble.disconnect();
@@ -2487,6 +2563,14 @@ public final class MainActivity extends Activity implements InputManager.InputDe
           dualPosition()
               ? "TWO LEGS / POSITION HOLD"
               : directionTest() ? "TWO MOTORS / DIRECTION TEST" : "SINGLE LEG / FLIGHT DECK");
+    if (referenceButton != null) {
+      referenceButton.setVisibility(dualPosition() ? View.VISIBLE : View.GONE);
+      referenceButton.setEnabled(referenceCaptureAllowed() && !referenceAwaiting);
+      referenceButton.setText(
+          referenceAwaiting
+              ? "Checking both retracted zeros…"
+              : (robotFlags & 2) != 0 ? "Both zeros set" : "Set both retracted zeros");
+    }
     if (driveHint != null)
       driveHint.setText(
           dualPosition()
@@ -2498,24 +2582,27 @@ public final class MainActivity extends Activity implements InputManager.InputDe
                       + " arm");
     if (directionTest() && mission != null) {
       boolean live = freshTelemetry();
+      boolean recovering = dualPosition() && live && (robotFlags & 128) != 0;
       boolean checkFailed = live && (robotFlags & 64) != 0;
       boolean pending = live && (robotFlags & 32) != 0, running = live && (robotFlags & 4) != 0;
       missionStatus.setText(
           !live
               ? "ROBOT STATUS STALE"
-              : actualFault
-                  ? "MOTOR / CAN FAULT"
-                  : pending
-                      ? dualPosition()
-                          ? "CONNECTING MOTORS"
-                          : running ? "WATCHDOG CHECK" : "CHECK WATCHDOGS"
-                      : running
-                          ? armedRequest ? "MOTORS ENABLED" : "STOPPING"
-                          : dualPosition()
-                              ? (robotFlags & 2) != 0
-                                  ? "POSITION CONTROL READY"
-                                  : "REFERENCE REQUIRED"
-                              : "DIRECTION TEST READY");
+              : recovering
+                  ? "CAN RECOVERY — SB OFF"
+                  : actualFault
+                      ? "MOTOR / CAN FAULT"
+                      : pending
+                          ? dualPosition()
+                              ? "CONNECTING MOTORS"
+                              : running ? "WATCHDOG CHECK" : "CHECK WATCHDOGS"
+                          : running
+                              ? armedRequest ? "MOTORS ENABLED" : "STOPPING"
+                              : dualPosition()
+                                  ? (robotFlags & 2) != 0
+                                      ? "POSITION CONTROL READY"
+                                      : "REFERENCE REQUIRED"
+                                  : "DIRECTION TEST READY");
       missionDetails.setText(
           "SELECTED  "
               + selectionName()
@@ -2532,7 +2619,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
               + "\nINPUTS  "
               + (liveInputFresh() ? "Live" : "Waiting")
               + (dualPosition()
-                  ? "\nREFERENCE  " + ((robotFlags & 2) != 0 ? "VALID" : "REQUIRED / INVALID")
+                  ? "\nREFERENCE  "
+                      + ((robotFlags & 2) != 0
+                          ? "VALID"
+                          : recovering ? "RECOVERY PENDING — KEEP SB OFF" : "REQUIRED / INVALID")
                   : "\nZERO  Not used for this test")
               + (live
                   ? String.format(Locale.US, "\nTRAVEL  R %+.1f° / L %+.1f°", rightDeg, leftDeg)
@@ -2543,31 +2633,35 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       modeLabel.setText(
           !live
               ? "Motor state unconfirmed. Keep SB DISARMED and reconnect."
-              : actualFault
-                  ? "Stop requested for both motors; inspect CAN and both power supplies."
-                  : pending
-                      ? dualPosition()
-                          ? "Keep SB DISARMED and center controls. Motor setup/recovery is"
-                              + " automatic."
-                          : "Keep SB DISARMED. Pit Tools → Check BOTH motor watchdogs."
-                      : dualPosition()
-                          ? ((robotFlags & 2) != 0
-                              ? "BOTH fixed 0–80°. Elevator moves; neutral holds.\n"
-                                  + "1 A / 1 rad/s. SB OFF disables; deliberate rearm required."
-                              : "SB DISARMED. Place BOTH at retracted pose.\n"
-                                  + "Release then hold Stick B 2s. Invalid zero: restart first.")
-                          : "SC selects right / left / both.\n"
-                              + "Elevator spins; neutral commands zero speed.\n"
-                              + "Run guard ~80° / 2.5s. Cycle SB off to rearm.\n"
-                              + "UNLOADED OUTPUTS ONLY — no leg mechanisms.");
+              : recovering
+                  ? "Keep SB DISARMED and center controls. Checking both motors against the saved"
+                      + " zeros; do not re-zero."
+                  : actualFault
+                      ? "Stop requested for both motors; inspect CAN and both power supplies."
+                      : pending
+                          ? dualPosition()
+                              ? "Keep SB DISARMED and center controls. Motor setup/recovery is"
+                                  + " automatic."
+                              : "Keep SB DISARMED. Pit Tools → Check BOTH motor watchdogs."
+                          : dualPosition()
+                              ? ((robotFlags & 2) != 0
+                                  ? "BOTH fixed 0–80°. Elevator moves; neutral holds.\n"
+                                      + "1 A / 1 rad/s. SB OFF disables; deliberate rearm required."
+                                  : "SB DISARMED. Place BOTH at retracted pose.\n"
+                                        + "Use Set both retracted zeros on Flight Deck."
+                                        + " Hard-invalid zero: restart first.")
+                              : "SC selects right / left / both.\n"
+                                  + "Elevator spins; neutral commands zero speed.\n"
+                                  + "Run guard ~80° / 2.5s. Cycle SB off to rearm.\n"
+                                  + "UNLOADED OUTPUTS ONLY — no leg mechanisms.");
     }
     if (directionTest() && connectionHelp != null)
       connectionHelp.setText(
           dualPosition()
               ? "DUAL POSITION • ID1 right / ID2 left\n"
-                  + "Watchdogs automatic. SB DISARMED; place BOTH at retracted pose; release"
-                  + " then hold Stick B 2s. Both zeros stay fixed until restart. Elevator moves"
-                  + " both; neutral holds. Bare outputs first."
+                  + "Watchdogs automatic. SB DISARMED; place BOTH at retracted pose; use Set both"
+                  + " retracted zeros on Flight Deck. Both zeros stay fixed until restart."
+                  + " Elevator moves both; neutral holds. Bare outputs first."
               : "DIRECTION TEST • ID1 right / ID2 left\n"
                   + "Keep both outputs unloaded. Pit Tools → Check BOTH motor watchdogs, with SB"
                   + " DISARMED and centered gimbals. Then SC selects motor(s) and elevator"
@@ -2744,7 +2838,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
       try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
         if (out == null) throw new IOException("No output stream");
         String header =
-            "Jumping Flash AX12 0.7.1\nNamed profile "
+            "Jumping Flash AX12 0.7.2\nNamed profile "
                 + radioMappingText()
                 + "\nDevice "
                 + deviceName

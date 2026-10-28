@@ -29,7 +29,7 @@ Stage stage=DIR_OFFLINE;
 bool driverReady=false, configured=false, cancelled=false, stopRequested=false, uncertain=false;
 bool watchdogFailed=false;
 bool testing=false, quiet=false, foreignTraffic=false, readDone=false, readOK=false, pending=false;
-bool testRequested=false;
+bool testRequested=false, referenceRequested=false;
 int pendingMotor=-1;
 uint16_t pendingIndex=0;
 uint32_t readBits=0, retryAt=0, pollAt=0, signatureAt=0, displayAt=0;
@@ -40,6 +40,10 @@ uint32_t referenceHoldAt=0;
 bool communicationFault=false, referenceRecoverable=false, referenceFault=false;
 uint8_t diagnostic=0;
 uint32_t readRetries=0;
+uint32_t armedGeneration=0, armRequestAt=0, armRequestGeneration=0;
+uint8_t armRequestStyle=0;
+bool armRequestPending=false;
+constexpr uint32_t ARM_STABLE_MS=200;
 enum Diagnostic { CAN_IO=1, READ_TIMEOUT=2, READ_REJECTED=3, VERIFY_MISMATCH=4,
   POSITION_NONFINITE=5, POSITION_RANGE=6, POSITION_JUMP=7, SETTINGS_CHANGED=8,
   UNEXPECTED_MODE=9, MOTOR_FAULT=10, MOTOR_RESTART=11, TRACKING_ERROR=12, STOP_UNCONFIRMED=13 };
@@ -56,7 +60,7 @@ const char* side(int i){return i==0?"RIGHT":"LEFT";}
 float travel(int i){return referenceValid?legs[i].sign*(legs[i].position-legs[i].origin):0;}
 bool allQualified(){return legs[0].watchdog && legs[1].watchdog;}
 bool centered(){auto s=ax12.snapshot();return s.fresh(millis()) && abs(s.forward)<=20 && abs(s.turn)<=20;}
-bool inputOkay(){auto s=ax12.snapshot();return s.fresh(millis()) && s.enabled && s.style==selection;}
+bool inputOkay(){auto s=ax12.snapshot();return s.fresh(millis()) && s.enabled && s.style==selection && s.disarmGeneration==armedGeneration;}
 bool disarmedInput(){return ax12.disarmed() && centered();}
 void invalidate(){for(auto& m:legs)m.watchdog=false;referenceValid=false;referenceRecoverable=false;referenceFault=referenceCaptured;uncertain=true;}
 void telemetry(){
@@ -67,10 +71,14 @@ void telemetry(){
   if(std::isfinite(legs[0].voltage)&&std::isfinite(legs[1].voltage)&&uint32_t(millis()-legs[0].voltageAt)<3000&&uint32_t(millis()-legs[1].voltageAt)<3000)volts=fminf(legs[0].voltage,legs[1].voltage);
   const bool ready=configured && allQualified() && livePositions && !uncertain && !testing;
   ax12.telemetryDual(ready,referenceValid,legs[0].mode==2||legs[1].mode==2,uncertain,
-    travel(1)*180.f/PI,travel(0)*180.f/PI,volts,!allQualified(),watchdogFailed,uncertain?diagnostic:0);
+    travel(1)*180.f/PI,travel(0)*180.f/PI,volts,!allQualified(),watchdogFailed,uncertain?diagnostic:0,referenceRecoverable&&!referenceFault);
 }
 void service(){
   M5.update();ax12.update();
+  if(ax12.takeReferenceRequest()){
+    if(stage==DIR_DISABLED && configured && allQualified() && !referenceCaptured && disarmedInput())referenceRequested=true;
+    else Serial.println("APP REFERENCE REJECTED: requires disabled/configured BOTH, centered SB OFF, and no prior reference this boot");
+  }
   if(ax12.takeMaintenanceStop())stopRequested=true;
   if(ax12.takeMaintenanceRequest() && !testing && stage==DIR_DISABLED)testRequested=true;
   if(M5.BtnA.wasPressed() || M5.BtnA.isPressed())stopRequested=true;
@@ -92,8 +100,8 @@ void service(){
       if((type==2||type==24) && dest==HOST){
         ++m.modeCount;m.mode=(f.identifier>>22)&3;m.flags=(f.identifier>>16)&63;
         if(m.flags){describe(i,MOTOR_FAULT,"motor feedback fault flags");invalidate();cancelled=true;}
-        if(stage==DIR_DISABLED && m.mode!=0){describe(i,UNEXPECTED_MODE,"motor running while disabled");invalidate();cancelled=true;}
-        if(stage==DIR_ACTIVE && m.mode!=2){describe(i,UNEXPECTED_MODE,"motor left RUN unexpectedly");invalidate();cancelled=true;}
+        if(stage==DIR_DISABLED && m.mode!=0){transportFault(i,UNEXPECTED_MODE,"motor running while disabled; STOP and validate");cancelled=true;}
+        if(stage==DIR_ACTIVE && m.mode!=2){transportFault(i,UNEXPECTED_MODE,"motor left RUN unexpectedly; STOP and validate");cancelled=true;}
       }
       if(type==21 && dest==HOST){for(int k=0;k<8;k++)if(f.data[k]){describe(i,MOTOR_FAULT,"motor error frame");invalidate();cancelled=true;}}
       if(type==17 && dest==HOST && pending && pendingMotor==i && jf::u16(f.data)==pendingIndex){
@@ -141,23 +149,40 @@ bool readValue(int i,uint16_t index,uint32_t& value,bool critical=true){
   Serial.printf("READ exhausted ID%u index=0x%04X\n",legs[i].id,index);
   transportFault(i,READ_TIMEOUT,"three parameter reads unanswered");return false;
 }
+bool parameterMatches(uint16_t index,uint32_t wanted,uint32_t got){
+  if(index==0x7016 || index==0x700A)return std::isfinite(floatOf(got)) && std::isfinite(floatOf(wanted)) && fabsf(floatOf(got)-floatOf(wanted))<=.0005f;
+  return got==wanted;
+}
 bool writeChecked(int i,uint16_t index,uint32_t wanted){
   uint8_t d[8]={uint8_t(index),uint8_t(index>>8)};memcpy(d+4,&wanted,4);uint32_t got;
   if(!sendPacket(i,18,d)||!readValue(i,index,got))return false;
-  bool match=got==wanted;
-  if(index==0x7016 || index==0x700A)match=std::isfinite(floatOf(got)) && std::isfinite(floatOf(wanted)) && fabsf(floatOf(got)-floatOf(wanted))<=.0005f;
-  if(!match){describe(i,VERIFY_MISMATCH,"parameter write/readback mismatch");invalidate();Serial.printf("ID%u VERIFY FAILED 0x%04X\n",legs[i].id,index);}
-  return match;
+  service();if(cancelled||stopRequested||uncertain)return false;
+  if(parameterMatches(index,wanted,got))return true;
+  Serial.printf("VERIFY RETRY ID%u index=0x%04X wanted=%08lX got=%08lX; read only\n",legs[i].id,index,(unsigned long)wanted,(unsigned long)got);
+  // Replies have no transaction IDs: a delayed old read can have the same index.
+  // Confirm with a fresh READ. Do not replay the write/enable or widen tolerances.
+  if(!readValue(i,index,got))return false;
+  service();if(cancelled||stopRequested||uncertain)return false;
+  if(parameterMatches(index,wanted,got))return true;
+  Serial.printf("VERIFY FAILED ID%u index=0x%04X wanted=%08lX got=%08lX\n",legs[i].id,index,(unsigned long)wanted,(unsigned long)got);
+  // This proves a write is unverified, not that the encoder zero changed.
+  // STOP, then validate original settings and position through normal recovery.
+  transportFault(i,VERIFY_MISMATCH,"persistent write/readback mismatch; STOP and validate");return false;
 }
 bool stateCommand(int i,uint8_t type,uint8_t expected){
   service();
   uint32_t before=legs[i].modeCount;const uint32_t began=millis();
   if(!sendPacket(i,type))return false;
-  while(legs[i].modeCount==before && uint32_t(millis()-began)<100){
-    service();if(type!=4 && (cancelled||stopRequested||uncertain))return false;delay(1);
+  for(;;){
+    service();
+    if(legs[i].flags)return false; // keep the specific motor-fault diagnostic
+    if(type!=4 && (cancelled||stopRequested||uncertain))return false;
+    if(legs[i].modeCount!=before && legs[i].mode==expected)return true;
+    // An old RUN/STOP reply is not acknowledgement of this new state command.
+    if(uint32_t(millis()-began)>=100)break;
+    delay(1);
   }
-  bool ok=legs[i].modeCount!=before && legs[i].mode==expected && !legs[i].flags;
-  if(!ok)transportFault(i,type==4?STOP_UNCONFIRMED:CAN_IO,"state command acknowledgement missing/mismatched");return ok;
+  transportFault(i,type==4?STOP_UNCONFIRMED:CAN_IO,"state command acknowledgement missing/mismatched");return false;
 }
 bool stopBoth(){
   Stage before=stage;stage=DIR_STOPPING;bool all=true;
@@ -169,7 +194,7 @@ bool stopBoth(){
 }
 void loseControl(const char* reason){
   bool wasUncertain=uncertain;
-  stage=DIR_STOPPING;ax12.requireDisarm();pending=false;
+  stage=DIR_STOPPING;ax12.requireDisarm();pending=false;armRequestPending=false;
   bool stopped=stopBoth();
   if(wasUncertain||uncertain||!stopped){
     if(communicationFault && !referenceFault){
@@ -177,7 +202,7 @@ void loseControl(const char* reason){
       referenceValid=false;for(auto& m:legs)m.watchdog=false;
     }else invalidate();
   }
-  cancelled=stopRequested=false;testing=quiet=false;testRequested=false;
+  cancelled=stopRequested=false;testing=quiet=false;testRequested=referenceRequested=false;
   if(!stopped||uncertain){configured=false;stage=DIR_OFFLINE;retryAt=millis()+1250;}
   else stage=DIR_DISABLED;
   Serial.printf("BOTH DISABLED: %s. STOP %s. Watchdog configured R=%u L=%u.\n",reason,stopped?"confirmed":"UNCONFIRMED: use BOTH power cutoffs",legs[0].watchdog,legs[1].watchdog);
@@ -234,7 +259,7 @@ bool configure(){
 
   }
   configured=true;stage=DIR_DISABLED;pollAt=signatureAt=millis();diagnostic=0;ax12.requireDisarm();
-  Serial.println("BOTH IDs configured/disabled. Watchdogs set/read back AUTOMATICALLY (1s). No routine test input required. Declare BOTH retracted poses with Stick B.");return true;
+  Serial.println("BOTH IDs configured/disabled. Watchdogs set/read back AUTOMATICALLY (1s). No routine test input required. Use Set both retracted zeros in the app.");return true;
 }
 bool zeroProbe(int i,uint8_t expected){
   uint8_t d[8]={0x0A,0x70};const uint32_t before=legs[i].modeCount,began=millis();
@@ -278,19 +303,19 @@ void watchdogTest(){
   ax12.requireDisarm();
 }
 bool inRange(int i){float q=travel(i);return referenceValid && q>=-.002f && q<=TRAVEL+.002f;}
-bool captureReference(){
-  if(referenceCaptured||!configured||!allQualified()||!disarmedInput()||!M5.BtnB.isPressed())return false;
+bool captureReference(bool requireButton=true){
+  if(referenceCaptured||!configured||!allQualified()||!disarmedInput()||(requireButton&&!M5.BtnB.isPressed()))return false;
   if(!stopBoth()||!readPosition(0)||!readPosition(1))return false;
   float first[2]={legs[0].position,legs[1].position};uint32_t began=millis();
-  while(uint32_t(millis()-began)<100){service();if(stopRequested||uncertain||!disarmedInput()||!M5.BtnB.isPressed())return false;delay(1);}
+  while(uint32_t(millis()-began)<100){service();if(stopRequested||uncertain||!disarmedInput()||(requireButton&&!M5.BtnB.isPressed()))return false;delay(1);}
   for(int i=0;i<2;i++)if(!readPosition(i)||fabsf(legs[i].position-first[i])>.002f)return false;
-  if(stopRequested||uncertain||!disarmedInput()||!M5.BtnB.isPressed())return false;
+  if(stopRequested||uncertain||!disarmedInput()||(requireButton&&!M5.BtnB.isPressed()))return false;
   for(auto& m:legs){m.origin=m.position;m.target=m.position;}
   referenceCaptured=referenceValid=true;referenceFault=referenceRecoverable=false;ax12.requireDisarm();
   Serial.printf("BOTH REFERENCES CAPTURED R=%.6f L=%.6f rad. Fixed 0..80deg. No motor zero/reset command.\n",legs[0].origin,legs[1].origin);return true;
 }
 bool arm(){
-  auto input=ax12.snapshot();selection=input.style;stage=DIR_ARMING;cancelled=false;
+  auto input=ax12.snapshot();selection=input.style;armedGeneration=input.disarmGeneration;stage=DIR_ARMING;cancelled=false;
   if(!configured||!allQualified()||!referenceValid||!inputOkay()||!centered())return false;
   // Validate BOTH and preload BOTH before enabling either. Never recapture zero on arm.
   for(int i=0;i<2;i++){
@@ -303,14 +328,14 @@ bool arm(){
   stage=DIR_ACTIVE;pollAt=millis();Serial.println("ARMED BOTH: FIXED 0..80deg, 1A / 1rad/s. Neutral HOLDS; SB OFF disables BOTH.");return true;
 }
 void setup(){
-  auto cfg=M5.config();M5.begin(cfg);Serial.begin(115200);M5.Display.setRotation(1);M5.Display.setTextSize(2);ax12.enableMaintenance();ax12.begin();
+  auto cfg=M5.config();M5.begin(cfg);Serial.begin(115200);M5.Display.setRotation(1);M5.Display.setTextSize(2);ax12.enableMaintenance();ax12.enableReference();ax12.begin();
   twai_general_config_t g=TWAI_GENERAL_CONFIG_DEFAULT(GPIO_NUM_32,GPIO_NUM_33,TWAI_MODE_NORMAL);g.rx_queue_len=64;g.tx_queue_len=0;
   twai_timing_config_t t=TWAI_TIMING_CONFIG_1MBITS();twai_filter_config_t f=TWAI_FILTER_CONFIG_ACCEPT_ALL();
   esp_err_t e=twai_driver_install(&g,&t,&f);if(e==ESP_OK)e=twai_start();driverReady=e==ESP_OK;
-  Serial.printf("AX12 DUAL POSITION v0.2 CAN=%s RIGHT=1(-) LEFT=2(+). No enable on boot.\n",esp_err_to_name(e));
+  Serial.printf("AX12 DUAL POSITION v0.3 CAN=%s RIGHT=1(-) LEFT=2(+). No enable on boot.\n",esp_err_to_name(e));
   if(driverReady){bool stopped=stopBoth();Serial.println(stopped?"Startup BOTH disabled confirmed":"Startup STOP unconfirmed. Keep BOTH motor supplies off until ready.");}
   uncertain=false;cancelled=stopRequested=false;retryAt=millis()+1500;
-  Serial.println("BOTH motors always selected. Watchdog automatic; t=OPTIONAL zero-speed diagnostic SB OFF; release then hold Stick B 2s at BOTH retracted poses. A/x=stop BOTH. BARE OUTPUT TEST FIRST.");
+  Serial.println("BOTH motors always selected. Watchdog automatic; t=OPTIONAL zero-speed diagnostic SB OFF; set BOTH retracted zeros in the app (B remains a fallback). A/x=stop BOTH. BARE OUTPUT TEST FIRST.");
 }
 void loop(){
   service();uint32_t now=millis();
@@ -320,12 +345,16 @@ void loop(){
     if(!configure())loseControl("both-motor configuration not verified");return;
   }
   if(testRequested){watchdogTest();return;}
+  if(referenceRequested){referenceRequested=false;if(!captureReference(false)){
+    if(uncertain||stopRequested)loseControl("app reference interrupted/unverified");
+    else Serial.println("APP REFERENCE REJECTED: keep BOTH stationary with SB OFF and centered controls");
+  }return;}
   if(configured && uint32_t(now-pollAt)>=50){
     float dt=fminf(.05f,uint32_t(now-pollAt)*.001f);pollAt=now;
     if(!readPosition(0)||!readPosition(1)){loseControl("position read/validation failed; see DIAGNOSTIC ID/code");return;}
     if(uint32_t(now-signatureAt)>=500){
       signatureAt=now;int i=signatureLeg;signatureLeg=1-signatureLeg;
-      if(!settings(i)){if(!cancelled&&!stopRequested)invalidate();loseControl("motor settings/input changed");return;}
+      if(!settings(i)){loseControl("motor settings/input read failed; see diagnostic");return;}
       uint32_t b;if(readValue(i,0x701C,b,false)&&std::isfinite(floatOf(b))){legs[i].voltage=floatOf(b);legs[i].voltageAt=millis();}
       if(uncertain||cancelled||stopRequested){loseControl("CAN transport/operator interruption during optional telemetry");return;}
     }
@@ -348,12 +377,20 @@ void loop(){
   }
   if(stage==DIR_DISABLED && configured){
     auto input=ax12.snapshot();
-    if(input.enabled && !arm())loseControl("arming blocked/interrupted/unverified");
+    if(!input.enabled || !input.fresh(millis()) || !centered())armRequestPending=false;
+    else {
+      if(!armRequestPending || input.disarmGeneration!=armRequestGeneration || input.style!=armRequestStyle){
+        armRequestPending=true;armRequestAt=millis();armRequestGeneration=input.disarmGeneration;armRequestStyle=input.style;
+      }
+      if(uint32_t(millis()-armRequestAt)>=ARM_STABLE_MS){
+        armRequestPending=false;if(!arm())loseControl("arming blocked/interrupted/unverified");
+      }
+    }
   }
   if(uint32_t(now-displayAt)>=250){
     displayAt=now;
     auto in=ax12.snapshot();
-    M5.Display.setCursor(0,0);M5.Display.printf("DUAL POSITION   \nR1(-) / L2(+)   \nWD: %-10s\nREF: %-10s\nR %5.1f L %5.1f\nA/x STOP BOTH   \n",allQualified()?"AUTO SET":"WAIT",referenceValid?"VALID":referenceCaptured?"INVALID":"HOLD B 2s",travel(0)*180.f/PI,travel(1)*180.f/PI);
+    M5.Display.setCursor(0,0);M5.Display.printf("DUAL POSITION   \nR1(-) / L2(+)   \nWD: %-10s\nREF: %-10s\nR %5.1f L %5.1f\nA/x STOP BOTH   \n",allQualified()?"AUTO SET":"WAIT",referenceValid?"VALID":referenceCaptured?"INVALID":"SET IN APP",travel(0)*180.f/PI,travel(1)*180.f/PI);
     Serial.printf("DUAL R=%.2f L=%.2f deg REF=%u WD=%u mode=%u/%u state=%u retry=%lu diag=0x%02X recoverable=%u\n",travel(0)*180.f/PI,travel(1)*180.f/PI,referenceValid,allQualified(),legs[0].mode,legs[1].mode,unsigned(stage),(unsigned long)readRetries,diagnostic,referenceRecoverable);
   }
   delay(1);

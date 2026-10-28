@@ -19,6 +19,8 @@ class AX12Transport : public BLEServerCallbacks, public BLECharacteristicCallbac
   jf::Receiver snapshot() { portENTER_CRITICAL(&mux); auto s=rx; portEXIT_CRITICAL(&mux); return s; }
   void requireDisarm() { portENTER_CRITICAL(&mux); rx.requireDisarm(); portEXIT_CRITICAL(&mux); }
   void enableMaintenance() { portENTER_CRITICAL(&mux);rx.allowMaintenance=true;portEXIT_CRITICAL(&mux); }
+  void enableReference(){portENTER_CRITICAL(&mux);rx.allowReference=true;portEXIT_CRITICAL(&mux);}
+  bool takeReferenceRequest(){portENTER_CRITICAL(&mux);bool r=rx.referenceRequested;rx.referenceRequested=false;portEXIT_CRITICAL(&mux);return r;}
   bool takeMaintenanceStop(){portENTER_CRITICAL(&mux);bool request=rx.maintenanceStopRequested;rx.maintenanceStopRequested=false;portEXIT_CRITICAL(&mux);return request;}
   bool takeMaintenanceRequest(){portENTER_CRITICAL(&mux);bool request=rx.maintenanceRequested;rx.maintenanceRequested=false;portEXIT_CRITICAL(&mux);return request;}
   bool disarmed() { auto s=snapshot(); return s.fresh(millis()) && s.sb==0 && !s.enabled; }
@@ -88,12 +90,12 @@ class AX12Transport : public BLEServerCallbacks, public BLECharacteristicCallbac
     b[15]=64;jf::put16(b+16,s.session);jf::put16(b+18,jf::crc(b,18));status->setValue(b,20);status->notify();
   }
   // Dual-position capability128. Byte14 packs fault motor ID/reason while faulted.
-  void telemetryDual(bool ready,bool referenced,bool armed,bool fault,float left,float right,float volts,bool watchdogPending,bool watchdogFailed,uint8_t diagnostic=0) {
+  void telemetryDual(bool ready,bool referenced,bool armed,bool fault,float left,float right,float volts,bool watchdogPending,bool watchdogFailed,uint8_t diagnostic=0,bool referenceRecovering=false) {
     auto s=snapshot();
     if(!s.link || !s.have || uint32_t(millis()-notifyAt)<40) return;
     notifyAt=millis();uint8_t b[20]={'J','F',2,0x81};
     jf::put16(b+4,telemetrySeq++);
-    b[6]=(referenced?2:0)|(ready?1:0)|(armed?4:0)|(fault?8:0)|(watchdogPending?32:0)|(watchdogFailed?64:0);
+    b[6]=(referenced?2:0)|(ready?1:0)|(armed?4:0)|(fault?8:0)|(watchdogPending?32:0)|(watchdogFailed?64:0)|(referenceRecovering?128:0);
     b[7]=s.style;jf::put16(b+8,std::isfinite(left)?int16_t(lroundf(left*100)):0);jf::put16(b+10,std::isfinite(right)?int16_t(lroundf(right*100)):0);
     jf::put16(b+12,std::isfinite(volts)?uint16_t(fminf(65535,fmaxf(0,volts*1000))):0);
     b[14]=diagnostic;b[15]=128;jf::put16(b+16,s.session);jf::put16(b+18,jf::crc(b,18));status->setValue(b,20);status->notify();

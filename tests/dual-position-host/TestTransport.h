@@ -6,6 +6,8 @@ struct FakeAx12{
  bool ready=false,armed=false,fault=false,needed=true;
  float left=0,right=0,voltage=NAN;
  void begin(){rx.link=true;rx.have=true;rx.sb=0;rx.at=millis();}
+ void enableReference(){rx.allowReference=true;}
+ bool takeReferenceRequest(){bool r=rx.referenceRequested;rx.referenceRequested=false;return r;}
  void enableMaintenance(){rx.allowMaintenance=true;}
  void update(){if(cancelAt && millis()>=cancelAt){rx.maintenanceStopRequested=true;cancelAt=0;}if(reports&&rx.link){rx.have=true;rx.at=millis();}rx.expire(millis());}
  jf::Receiver snapshot(){return rx;}
@@ -16,5 +18,5 @@ struct FakeAx12{
  void telemetryDirection(bool r,bool a,bool f,float l,float rightPos,float v,bool need,bool failed){
   ready=r;armed=a;fault=f;needed=need;left=l;right=rightPos;voltage=v;
  }
- void telemetryDual(bool r,bool ref,bool a,bool f,float l,float rp,float v,bool need,bool failed,uint8_t diagnostic=0){telemetryDirection(r,a,f,l,rp,v,need,failed);}
+ void telemetryDual(bool r,bool ref,bool a,bool f,float l,float rp,float v,bool need,bool failed,uint8_t diagnostic=0,bool referenceRecovering=false){telemetryDirection(r,a,f,l,rp,v,need,failed);}
 } ax12;

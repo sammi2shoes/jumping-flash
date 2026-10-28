@@ -51,5 +51,19 @@ int main(){
  packet(b,2,false,0,1);b[15]=1;seal(b);assert(!maintenance.accept(b,20,30));
  packet(b,2,false,1);b[15]=2;seal(b);assert(maintenance.accept(b,20,40)&&maintenance.maintenanceStopRequested&&!maintenance.enabled);
  maintenance.disconnect();assert(!maintenance.maintenanceRequested&&!maintenance.maintenanceStopRequested);
+ // OFF followed by ON between motor-loop services must leave evidence of the OFF edge.
+ jf::Receiver edges;edges.link=true;packet(b,1,false,0);assert(edges.accept(b,20,10));packet(b,2,true,1);assert(edges.accept(b,20,20));
+ auto generation=edges.disarmGeneration;packet(b,3,false,0);assert(edges.accept(b,20,30));packet(b,4,true,1);assert(edges.accept(b,20,40));
+ assert(edges.enabled&&edges.disarmGeneration==generation+1);
+ edges.requireDisarm();assert(edges.disarmGeneration==generation+2);
+ // Remote reference is opt-in, disarmed, neutral, CRC/session/sequence checked, and never arms.
+ jf::Receiver remote;remote.link=true;remote.allowMaintenance=true;
+ packet(b,1,false,0);b[15]=3;seal(b);assert(!remote.accept(b,20,10));remote.allowReference=true;
+ assert(remote.accept(b,20,10)&&remote.referenceRequested&&!remote.enabled);remote.referenceRequested=false;
+ assert(!remote.accept(b,20,11)&&!remote.referenceRequested);
+ packet(b,2,false,1);b[15]=3;seal(b);assert(!remote.accept(b,20,20));
+ packet(b,2,false,0,1);b[15]=3;seal(b);assert(!remote.accept(b,20,20));
+ packet(b,2,true,1);b[15]=3;seal(b);assert(!remote.accept(b,20,20));
+ packet(b,2,false,0);b[15]=3;seal(b);assert(remote.accept(b,20,20)&&remote.referenceRequested);remote.disconnect();assert(!remote.referenceRequested);
  puts("AX12 receiver tests passed: framing, neutral arming, deadlines, replay, session, disconnect, unsupported outputs, wrap.");
 }

@@ -71,3 +71,9 @@ AX12DualPosition v0.1 uses capability128 exclusively; decode the full unsigned b
 
 
 Dual-position v0.2 retains capability128; readiness now gates checked watchdog configuration, not a newly run behavioral A/B trial. Setup is automatic while disabled. Byte14 packs motor ID/reason during uncertainty;0means no current fault report. Bit5 indicates configuration pending and bit6 explicit behavioral diagnostic failure. The APK must not label configuration verification as a behavioral PASS. [Recovery and diagnostic details](AX12-CAN-RECOVERY.md).
+
+
+Dual-position v0.3 adds telemetry flag bit7 (0x80): saved references suspended pending automatic validation. It is distinct from capability128 in byte15. Motion remains blocked while reference bit1 is clear. v0.7.2 displays recovery pending rather than directing immediate re-zero. The receiver's local disarm-edge generation counter is not serialized and does not alter command version/size. [Rapid-SB changes](AX12-SB-RECOVERY.md).
+
+
+Dual-position v0.3 also opts in to maintenance command byte15=3: an explicit manual retracted-reference declaration, with flags0, SB0 and zero axes/actuator fields. It never enables or resets the encoder. Only disabled/configured, uncaptured, fresh/centered input permits the request; both stationary checks must pass before either offset commits. Receiver sessions/sequence/CRC still apply; disconnect/disarm clears pending requests. Older/non-opted-in receivers reject command3. App success requires reference-valid telemetry. Both APK v0.7.2 and Stick v0.3 are required for this UI feature.
